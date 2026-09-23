@@ -1,0 +1,37 @@
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# --- Node ---
+node_modules/
+dist/
+build/
+.vite/
+
+# --- Env / secrets ---
+.env
+.env.*
+!.env.example
+*.local
+
+# --- Model artifacts (fetched via scripts/fetch_models.sh, not committed) ---
+local-backend/models/*.onnx
+local-backend/models/*.bin
+
+# --- Local data / logs (never commit real or synthetic PII checkpoint DBs) ---
+local-backend/**/*.sqlite3
+local-backend/**/debug_logs/
+cloud-backend/**/*.sqlite3
+
+# --- Eval reports (generated, not source) ---
+eval/reports/*
+!eval/reports/.gitkeep
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,12 @@
+# systemd unit for deploying cloud-backend on a $5 VPS (docs/architecture.md 1.1)
+[Unit]
+Description=AI Privacy Gateway Cloud Backend
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/ai-privacy-gateway/cloud-backend
+ExecStart=/opt/ai-privacy-gateway/cloud-backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,131 @@
+prompt_id,category,hard_case,entity_type,surface,canonical,variant,action,start,end
+C01,CODE,,USERNAME,svc_deploy,svc_deploy,exact,faker,62,72
+C01,CODE,,PASSWORD,Tr0ub4dor&3,Tr0ub4dor&3,exact,redact,85,96
+C01,CODE,,API_KEY,STRIPE_API_KEY_TEST_PLACEHOLDER,STRIPE_API_KEY_TEST_PLACEHOLDER,exact,redact,112,144
+C01,CODE,,EMAIL,ops@brightpath-labs.com,ops@brightpath-labs.com,exact,faker,157,180
+C02,CODE,inflection,ACCESS_TOKEN,eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJqY2FydGVyIiwiaWF0IjoxNzEyMzQ1NjAwfQ.4f9d0a1b2c3d4e5f6a7b8c9d0e1f2a3b,eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJqY2FydGVyIiwiaWF0IjoxNzEyMzQ1NjAwfQ.4f9d0a1b2c3d4e5f6a7b8c9d0e1f2a3b,exact,redact,83,199
+C02,CODE,inflection,PERSON,James Walsh's,James Walsh,possessive,faker,252,265
+C03,CODE,,USERNAME,replicator,replicator,exact,faker,130,140
+C03,CODE,,PASSWORD,Kj8$mPz2Qw,Kj8$mPz2Qw,exact,redact,141,151
+C03,CODE,,IP_ADDRESS,10.42.7.18,10.42.7.18,exact,faker,152,162
+C03,CODE,,API_KEY,AKIA3F7QK9X2M4B1P8Z6,AKIA3F7QK9X2M4B1P8Z6,exact,redact,249,269
+C04,CODE,,ACCESS_TOKEN,ghp_9kLmQ2vXpR7tYbN3wEaZcD5fH8jK1sV6uA0,ghp_9kLmQ2vXpR7tYbN3wEaZcD5fH8jK1sV6uA0,exact,redact,79,118
+C04,CODE,,URL,https://hooks.slack.com/services/T02ABCXYZ/B04QWERTY/9f8e7d6c5b4a3210,https://hooks.slack.com/services/T02ABCXYZ/B04QWERTY/9f8e7d6c5b4a3210,exact,keep,133,202
+C05,CODE,,CARD_NUMBER,4111 1111 1111 1111,4111 1111 1111 1111,exact,redact,174,193
+C05,CODE,,CARD_EXPIRY,09/28,09/28,exact,redact,199,204
+C05,CODE,,CARD_CVV,402,402,exact,redact,210,213
+C05,CODE,,EMAIL,r.delacroix@northbrook-imports.com,r.delacroix@northbrook-imports.com,exact,faker,229,263
+C06,CODE,,USERNAME,m.ortiz,m.ortiz,exact,faker,131,138
+C06,CODE,,EMAIL,michael.ortiz@kestrel-freight.com,michael.ortiz@kestrel-freight.com,exact,faker,142,175
+C06,CODE,,RECOVERY_CODE,RC-88213-QZP7,RC-88213-QZP7,exact,redact,179,192
+C07,CODE,,API_KEY,fastino_live_7hQmN2pXeR9wLbK4vTzC1sD8,fastino_live_7hQmN2pXeR9wLbK4vTzC1sD8,exact,redact,92,129
+C07,CODE,,URL,https://api.marigold-robotics.io/v2/orders/8841203,https://api.marigold-robotics.io/v2/orders/8841203,exact,keep,131,181
+C08,CODE,,EMAIL,elena.petrova@union-creek-bank.com,elena.petrova@union-creek-bank.com,exact,faker,88,122
+C08,CODE,,ACCESS_TOKEN,_b3f1a9d2e4c6f8a0b2d4e6f8a0c2e4f6,_b3f1a9d2e4c6f8a0b2d4e6f8a0c2e4f6,exact,redact,137,170
+S01,SUPPORT,,PERSON,Sarah Chen,Sarah Chen,exact,faker,62,72
+S01,SUPPORT,,EMAIL,sarah.chen88@fernwood-realty.com,sarah.chen88@fernwood-realty.com,exact,faker,80,112
+S01,SUPPORT,,PHONE_NUMBER,(415) 555-0192,(415) 555-0192,exact,faker,120,134
+S02,SUPPORT,allcaps,PERSON,THOMAS REYES,Thomas Reyes,allcaps,faker,94,106
+S02,SUPPORT,allcaps,DATE_OF_BIRTH,1984-11-02,1984-11-02,exact,faker,120,130
+S02,SUPPORT,allcaps,CARD_LAST4,7734,7734,exact,redact,155,159
+S03,SUPPORT,,PERSON,Nadia Farouk,Nadia Farouk,exact,faker,69,81
+S03,SUPPORT,,ADDRESS,"118 Copperline Ave, Unit 4B, Portland, OR 97205","118 Copperline Ave, Unit 4B, Portland, OR 97205",exact,faker,84,131
+S04,SUPPORT,inflection,PERSON,David Kim's,David Kim,possessive,faker,9,20
+S04,SUPPORT,inflection,EMAIL,d.kim@solvane-health.io,d.kim@solvane-health.io,exact,faker,82,105
+S05,SUPPORT,inflection,PERSON,J. Bennett,Laura Bennett,initial,faker,57,67
+S05,SUPPORT,inflection,PHONE_NUMBER,312-555-0147,312-555-0147,exact,faker,158,170
+S06,SUPPORT,,EMAIL,priya.nandakumar@meridian-outfitters.com,priya.nandakumar@meridian-outfitters.com,exact,faker,168,208
+S07,SUPPORT,allcaps,PERSON,OMAR HADDAD,Omar Haddad,allcaps,faker,42,53
+S07,SUPPORT,allcaps,IBAN,DE89 3704 0044 0532 0130 00,DE89 3704 0044 0532 0130 00,exact,redact,71,98
+S08,SUPPORT,,USERNAME,kestrel_jwalsh,kestrel_jwalsh,exact,faker,39,53
+S08,SUPPORT,,EMAIL,j.walsh@kestrel-freight.com,j.walsh@kestrel-freight.com,exact,faker,155,182
+S09,SUPPORT,,PERSON,Elena Petrova,Elena Petrova,exact,faker,104,117
+S09,SUPPORT,,NATIONAL_ID,RUS-4471-8829-03,RUS-4471-8829-03,exact,redact,131,147
+E01,EMAIL,,PERSON,James Walsh,James Walsh,exact,faker,31,42
+E01,EMAIL,,PHONE_NUMBER,646-555-0110,646-555-0110,exact,faker,116,128
+E02,EMAIL,,ADDRESS,"44 Larkspur Ct, Austin, TX 78704","44 Larkspur Ct, Austin, TX 78704",exact,faker,142,174
+E03,EMAIL,,ORGANIZATION,Union Creek Bank,Union Creek Bank,exact,decision_routed,93,109
+E03,EMAIL,,ROUTING_NUMBER,071000013,071000013,exact,redact,119,128
+E03,EMAIL,,BANK_ACCOUNT,4400981123,4400981123,exact,redact,138,148
+E04,EMAIL,inflection|allcaps,PERSON,THOMAS REYES',Thomas Reyes,allcaps-possessive,faker,19,32
+E05,EMAIL,,ORGANIZATION,Marigold Robotics,Marigold Robotics,exact,decision_routed,33,50
+E05,EMAIL,,EMAIL,nadia.f@marigold-robotics.io,nadia.f@marigold-robotics.io,exact,faker,77,105
+E05,EMAIL,,TAX_ID,87-2210934,87-2210934,exact,redact,142,152
+E06,EMAIL,inflection,PERSON,David's,David Kim,possessive-first-name,faker,12,19
+E06,EMAIL,inflection,ACCOUNT_ID,55231,55231,exact,faker,121,126
+E07,EMAIL,inflection,PERSON,Omar's,Omar Haddad,possessive-first-name,faker,57,63
+E07,EMAIL,inflection,PASSPORT_NUMBER,K4471982,K4471982,exact,redact,114,122
+E08,EMAIL,allcaps,PERSON,SARAH CHEN,Sarah Chen,allcaps,faker,23,33
+E08,EMAIL,allcaps,PERSON,Laura Bennett,Laura Bennett,exact,faker,97,110
+E08,EMAIL,allcaps,EMAIL,l.bennett@fernwood-realty.com,l.bennett@fernwood-realty.com,exact,faker,115,144
+E09,EMAIL,inflection,PERSON,j.carter's,James Carter,possessive-username-style,faker,50,60
+E09,EMAIL,inflection,DRIVERS_LICENSE,D-99214477,D-99214477,exact,redact,104,114
+F01,FINANCE,,ORGANIZATION,Kestrel Freight,Kestrel Freight,exact,decision_routed,24,39
+F01,FINANCE,,BANK_ACCOUNT,220098817,220098817,exact,redact,98,107
+F01,FINANCE,,ROUTING_NUMBER,091000019,091000019,exact,redact,117,126
+F02,FINANCE,,CARD_LAST4,4471,4471,exact,redact,62,66
+F02,FINANCE,,PERSON,David Kim,David Kim,exact,faker,131,140
+F03,FINANCE,,ACCOUNT_ID,88231,88231,exact,faker,42,47
+F03,FINANCE,,IBAN,GB29 NWBK 6016 1331 9268 19,GB29 NWBK 6016 1331 9268 19,exact,redact,106,133
+F04,FINANCE,,ORGANIZATION,Marigold Robotics,Marigold Robotics,exact,decision_routed,47,64
+F04,FINANCE,,IBAN,DE44 5001 0517 5407 3249 31,DE44 5001 0517 5407 3249 31,exact,redact,129,156
+F05,FINANCE,allcaps,CARD_NUMBER,5500 **** **** 3391,5500 **** **** 3391,exact,redact,73,92
+F05,FINANCE,allcaps,CARD_EXPIRY,11/27,11/27,exact,redact,98,103
+F05,FINANCE,allcaps,PERSON,NADIA FAROUK,Nadia Farouk,allcaps,faker,115,127
+F06,FINANCE,,NATIONAL_ID,552-71-0043,552-71-0043,exact,redact,49,60
+F07,FINANCE,,PERSON,Michael Ortiz,Michael Ortiz,exact,faker,38,51
+F07,FINANCE,,ROUTING_NUMBER,026009593,026009593,exact,redact,61,70
+F07,FINANCE,,BANK_ACCOUNT,7734012298,7734012298,exact,redact,80,90
+H01,HR,,PERSON,Priya Nandakumar,Priya Nandakumar,exact,faker,23,39
+H01,HR,,DATE_OF_BIRTH,1991-07-22,1991-07-22,exact,faker,46,56
+H01,HR,,ADDRESS,"89 Thistledown Rd, Denver, CO 80206","89 Thistledown Rd, Denver, CO 80206",exact,faker,71,106
+H02,HR,inflection,PERSON,Thomas Reyes',Thomas Reyes,possessive,faker,28,41
+H02,HR,inflection,NATIONAL_ID,441-09-2287,441-09-2287,exact,redact,100,111
+H03,HR,,ACCOUNT_ID,66120,66120,exact,faker,35,40
+H03,HR,,BANK_ACCOUNT,990041123,990041123,exact,redact,92,101
+H03,HR,,ROUTING_NUMBER,121000358,121000358,exact,redact,111,120
+H04,HR,inflection,PERSON,J. Walsh,James Walsh,initial,faker,31,39
+H04,HR,inflection,DRIVERS_LICENSE,D-44120987,D-44120987,exact,redact,59,69
+H05,HR,,PERSON,Elena Petrova,Elena Petrova,exact,faker,23,36
+H05,HR,,ADDRESS,"12 Birchwood Ln, Seattle, WA 98109","12 Birchwood Ln, Seattle, WA 98109",exact,faker,51,85
+H05,HR,,PASSPORT_NUMBER,K7723410,K7723410,exact,redact,96,104
+H06,HR,inflection,PERSON,David Kim's,David Kim,possessive,faker,19,30
+H06,HR,inflection,NATIONAL_ID,220-88-1147,220-88-1147,exact,redact,106,117
+N01,NOTES,,ORGANIZATION,Marigold Robotics,Marigold Robotics,exact,decision_routed,36,53
+N01,NOTES,,EMAIL,nadia.f@marigold-robotics.io,nadia.f@marigold-robotics.io,exact,faker,103,131
+N02,NOTES,,PERSON,David Kim,David Kim,exact,faker,57,66
+N02,NOTES,,EMAIL,d.kim@solvane-health.io,d.kim@solvane-health.io,exact,faker,98,121
+N03,NOTES,,PERSON,Michael,Michael,first-name-only,faker,15,22
+N03,NOTES,,ORGANIZATION,Kestrel Freight,Kestrel Freight,exact,decision_routed,50,65
+N04,NOTES,,ORGANIZATION,Fernwood Realty,Fernwood Realty,exact,decision_routed,40,55
+N04,NOTES,,EMAIL,sarah.chen88@fernwood-realty.com,sarah.chen88@fernwood-realty.com,exact,faker,63,95
+N05,NOTES,,IP_ADDRESS,10.42.7.18,10.42.7.18,exact,faker,98,108
+M01,MIXED,,PERSON,Sarah Chen,Sarah Chen,exact,faker,50,60
+M01,MIXED,,EMAIL,sarah.chen88@fernwood-realty.com,sarah.chen88@fernwood-realty.com,exact,faker,68,100
+M01,MIXED,,PHONE_NUMBER,(415) 555-0192,(415) 555-0192,exact,faker,108,122
+M01,MIXED,,ADDRESS,"20 Willowmere Dr, San Jose, CA 95112","20 Willowmere Dr, San Jose, CA 95112",exact,faker,132,168
+M01,MIXED,,CARD_NUMBER,4111 1111 1111 1111,4111 1111 1111 1111,exact,redact,183,202
+M01,MIXED,,CARD_EXPIRY,09/28,09/28,exact,redact,208,213
+M01,MIXED,,ACCOUNT_ID,774920,774920,exact,faker,226,232
+M02,MIXED,,ORGANIZATION,Marigold Robotics,Marigold Robotics,exact,decision_routed,25,42
+M02,MIXED,,PERSON,Nadia Farouk,Nadia Farouk,exact,faker,62,74
+M02,MIXED,,EMAIL,nadia.f@marigold-robotics.io,nadia.f@marigold-robotics.io,exact,faker,76,104
+M02,MIXED,,API_KEY,fastino_live_7hQmN2pXeR9wLbK4vTzC1sD8,fastino_live_7hQmN2pXeR9wLbK4vTzC1sD8,exact,redact,130,167
+M02,MIXED,,IBAN,DE44 5001 0517 5407 3249 31,DE44 5001 0517 5407 3249 31,exact,redact,199,226
+M03,MIXED,,PERSON,James Walsh,James Walsh,exact,faker,78,89
+M03,MIXED,,EMAIL,j.walsh@kestrel-freight.com,j.walsh@kestrel-freight.com,exact,faker,150,177
+M03,MIXED,,IP_ADDRESS,10.42.7.18,10.42.7.18,exact,faker,203,213
+M03,MIXED,,ACCOUNT_ID,40219,40219,exact,faker,234,239
+M04,MIXED,,PERSON,Omar Haddad,Omar Haddad,exact,faker,56,67
+M04,MIXED,,NATIONAL_ID,OMH-2298-1147-05,OMH-2298-1147-05,exact,redact,81,97
+M04,MIXED,,PASSPORT_NUMBER,K5502217,K5502217,exact,redact,108,116
+M04,MIXED,,IBAN,FR76 3000 6000 0112 3456 7890 189,FR76 3000 6000 0112 3456 7890 189,exact,redact,123,156
+M05,MIXED,,PERSON,Priya Nandakumar,Priya Nandakumar,exact,faker,86,102
+M05,MIXED,,USERNAME,priya_n,priya_n,exact,faker,113,120
+M05,MIXED,,EMAIL,priya.nandakumar@meridian-outfitters.com,priya.nandakumar@meridian-outfitters.com,exact,faker,128,168
+M05,MIXED,,PHONE_NUMBER,720-555-0138,720-555-0138,exact,faker,176,188
+M05,MIXED,,CARD_LAST4,9021,9021,exact,redact,205,209
+M06,MIXED,,PASSWORD,Qz7!vNpL2xR9,Qz7!vNpL2xR9,exact,redact,119,131
+M06,MIXED,,SECRET,8f2e1a9c7b4d6e0f3a5c8b1d4e7f0a2c,8f2e1a9c7b4d6e0f3a5c8b1d4e7f0a2c,exact,redact,143,175
+M06,MIXED,,EMAIL,help@brightpath-labs.com,help@brightpath-labs.com,exact,faker,190,214
+M06,MIXED,,PHONE_NUMBER,800-555-0177,800-555-0177,exact,faker,227,239

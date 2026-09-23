@@ -1,0 +1,12 @@
+{
+  "name": "ai-privacy-gateway-extension",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "echo \"TODO: wire test runner\" && exit 0",
+    "lint": "echo \"TODO: wire linter\" && exit 0"
+  },
+  "dependencies": {
+    "faker": "^6.6.6"
+  }
+}

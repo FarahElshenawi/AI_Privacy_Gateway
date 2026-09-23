@@ -1,0 +1,192 @@
+prompt_id,category,hard_case,entity_count,text
+C01,CODE,,4,"Can you review this config loader before I merge it?
+
+DB_USER=svc_deploy
+DB_PASSWORD=Tr0ub4dor&3
+STRIPE_API_KEY=STRIPE_API_KEY_TEST_PLACEHOLDER
+ADMIN_EMAIL=ops@brightpath-labs.com
+
+It should read straight from .env, nothing hardcoded."
+C02,CODE,inflection,2,"getting a 401 on staging even though the token looks valid:
+
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJqY2FydGVyIiwiaWF0IjoxNzEyMzQ1NjAwfQ.4f9d0a1b2c3d4e5f6a7b8c9d0e1f2a3b
+
+can someone check the middleware, this is blocking James Walsh's demo tomorrow"
+C03,CODE,,4,"Terraform apply is failing on the RDS module. Here's the connection string I'm using locally, not sure if it's stale:
+
+postgres://replicator:Kj8$mPz2Qw@10.42.7.18:5432/orders_prod
+
+Also the AWS access key in my shell profile might be the wrong one:
+AKIA3F7QK9X2M4B1P8Z6"
+C04,CODE,,2,"Found this in the old CI logs, flagging in case it's still live:
+
+GITHUB_TOKEN=ghp_9kLmQ2vXpR7tYbN3wEaZcD5fH8jK1sV6uA0
+SLACK_WEBHOOK=https://hooks.slack.com/services/T02ABCXYZ/B04QWERTY/9f8e7d6c5b4a3210
+
+Rotate both before the audit next week."
+C05,CODE,,4,"Can you check why the webhook handler is timing out? Test payload below, note the customer's card is a real one from support so please don't log this anywhere:
+
+card_number: 4111 1111 1111 1111
+exp: 09/28
+cvv: 402
+billing_email: r.delacroix@northbrook-imports.com"
+C06,CODE,,3,"Quick sanity check on this seed script before I run it against prod:
+
+INSERT INTO admins (username, email, recovery_code)
+VALUES ('m.ortiz', 'michael.ortiz@kestrel-freight.com', 'RC-88213-QZP7');
+
+Does the recovery_code column need to be hashed at rest?"
+C07,CODE,,2,"This curl command works locally but not in the pipeline, any idea why?
+
+curl -H ""X-API-Key: fastino_live_7hQmN2pXeR9wLbK4vTzC1sD8"" https://api.marigold-robotics.io/v2/orders/8841203
+
+Getting a 403 even though the key hasn't expired."
+C08,CODE,,2,"Debugging the SSO callback. Here's a sample decoded assertion for a test user:
+
+NameID: elena.petrova@union-creek-bank.com
+SessionIndex: _b3f1a9d2e4c6f8a0b2d4e6f8a0c2e4f6
+IssueInstant: 2026-03-14T09:12:00Z
+
+The SessionIndex looks like it's being reused across logins, is that expected?"
+S01,SUPPORT,,3,"Ticket #48213 — customer says they were charged twice.
+
+Name: Sarah Chen
+Email: sarah.chen88@fernwood-realty.com
+Phone: (415) 555-0192
+Order ref: FR-2026-00931
+
+Can billing confirm which charge to refund?"
+S02,SUPPORT,allcaps,3,"Escalation from Tier 1: customer locked out of account after password reset loop.
+
+Full name: THOMAS REYES
+DOB on file: 1984-11-02
+Last 4 of card on file: 7734
+
+He's asked to speak with a supervisor directly."
+S03,SUPPORT,,2,"Following up on ticket #55210. Customer's shipping address bounced:
+
+Nadia Farouk — 118 Copperline Ave, Unit 4B, Portland, OR 97205
+
+Please confirm before we reship."
+S04,SUPPORT,inflection,2,Customer David Kim's account shows a duplicate subscription. His email on file is d.kim@solvane-health.io and the duplicate charge posted on 2026-02-11. Can we merge the two accounts?
+S05,SUPPORT,inflection,2,"Complaint from a long-time customer, please prioritize:
+
+J. Bennett called in furious about a data export that included another user's info. Callback number: 312-555-0147. Wants a written apology."
+S06,SUPPORT,,1,"New chat transcript flagged for review — possible account takeover:
+
+user: hi this isn't priya, this is her brother, she asked me to update the password on her account priya.nandakumar@meridian-outfitters.com
+agent: for security we can only make changes with the account holder present
+
+Can someone confirm this was handled correctly?"
+S07,SUPPORT,allcaps,2,"Refund request, ticket #61094.
+
+Customer: OMAR HADDAD
+IBAN for refund: DE89 3704 0044 0532 0130 00
+Reason: item never arrived
+
+Please process by Friday."
+S08,SUPPORT,,2,Following up — the customer (username: kestrel_jwalsh) says their API integration stopped authenticating after last night's deploy. Their account email is j.walsh@kestrel-freight.com. Can engineering check the token service logs?
+S09,SUPPORT,,2,"Ticket #59902 — customer wants their national ID removed from our KYC records per their request.
+
+Name: Elena Petrova
+National ID: RUS-4471-8829-03
+Submitted: 2026-01-30
+
+Please confirm deletion once processed."
+E01,EMAIL,,2,"Hi team,
+
+Forwarding this from James Walsh — he needs the Q1 deck before his 2pm with the board. His direct line is 646-555-0110 if anything's unclear.
+
+Thanks,
+Priya"
+E02,EMAIL,,1,"Subject: Re: Offer letter — please review
+
+Hi Michael,
+
+Attaching the signed offer for our new hire. Home address for the equipment shipment: 44 Larkspur Ct, Austin, TX 78704. Start date is March 2nd.
+
+Best,
+Sarah"
+E03,EMAIL,,3,"Subject: Wire instructions attached
+
+Please use the following for the vendor payment:
+
+Bank: Union Creek Bank
+Routing: 071000013
+Account: 4400981123
+
+Confirm once sent so I can close the PO."
+E04,EMAIL,inflection|allcaps,1,Hey — can you pull THOMAS REYES' access logs for the security review? Compliance wants everything from the last 90 days by end of week.
+E05,EMAIL,,3,"Subject: New vendor onboarding — Marigold Robotics
+
+Their primary contact is nadia.f@marigold-robotics.io and their tax ID for our records is 87-2210934. Finance needs this before they can cut the first PO."
+E06,EMAIL,inflection,2,"Quick one — David's badge access didn't work this morning. Can facilities check why? He's in the west wing, badge number 55231."
+E07,EMAIL,inflection,2,"Subject: Passport copy for visa sponsorship
+
+Attached is Omar's passport for the visa paperwork — passport number K4471982, expires 2029-06-15. Let me know if legal needs anything else."
+E08,EMAIL,allcaps,3,"Hi all,
+
+Reminder that SARAH CHEN is out next week — please route anything urgent to her backup, Laura Bennett, at l.bennett@fernwood-realty.com."
+E09,EMAIL,inflection,2,"Subject: Driver's license on file needs updating
+
+j.carter's license expired last month — new number is D-99214477, exp 2030-08-01. Can HR update before the fleet audit?"
+F01,FINANCE,,3,"Invoice #INV-88213 from Kestrel Freight — amount due $14,208.50, due 2026-04-01. Remit to account 220098817, routing 091000019."
+F02,FINANCE,,2,"Expense report flagged for review — receipt shows card ending 4471, charged $892.00 at a hotel in Chicago on 2026-02-19. Employee: David Kim."
+F03,FINANCE,,2,Payroll correction needed for employee ID 88231 — direct deposit account was entered wrong. Correct IBAN: GB29 NWBK 6016 1331 9268 19.
+F04,FINANCE,,2,"Can finance confirm this wire cleared? Sender: Marigold Robotics, reference MR-2026-0043, amount €48,200.00, beneficiary account DE44 5001 0517 5407 3249 31."
+F05,FINANCE,allcaps,3,"Reimbursement request — mileage + card statement attached. Card on file: 5500 **** **** 3391, exp 11/27. Employee: NADIA FAROUK."
+F06,FINANCE,,1,"Tax filing draft — SSN on file for contractor is 552-71-0043, please confirm before we submit the 1099."
+F07,FINANCE,,3,"Loan application update for applicant Michael Ortiz. Routing 026009593, account 7734012298, requested amount $22,000."
+H01,HR,,3,"New hire paperwork for Priya Nandakumar — DOB 1991-07-22, home address 89 Thistledown Rd, Denver, CO 80206. Start date March 2nd."
+H02,HR,inflection,2,Benefits enrollment issue — Thomas Reyes' dependent info didn't save. SSN on file for verification: 441-09-2287.
+H03,HR,,3,"Termination checklist for employee 66120 — final paycheck to be direct deposited to account 990041123, routing 121000358."
+H04,HR,inflection,2,"Background check came back for J. Walsh — driver's license D-44120987 confirmed valid, no flags."
+H05,HR,,3,"Relocation package for Elena Petrova — new address 12 Birchwood Ln, Seattle, WA 98109, passport K7723410 needed for visa transfer."
+H06,HR,inflection,2,"Compliance flagged David Kim's I-9 as incomplete — need his passport number on file, currently blank, SSN 220-88-1147 present but unverified."
+N01,NOTES,,2,"Standup notes — Sarah mentioned the Marigold Robotics integration is blocked on their side, waiting on nadia.f@marigold-robotics.io to confirm API scopes."
+N02,NOTES,,2,Retro notes: James flagged that the staging DB still has David Kim's real email in the seed data (d.kim@solvane-health.io) — needs to be scrubbed before the demo.
+N03,NOTES,,2,"1:1 notes with Michael — he's onboarding onto the Kestrel Freight account, needs read access to their shared drive by Friday."
+N04,NOTES,,2,"Planning notes: budget approved for the Fernwood Realty pilot, sarah.chen88@fernwood-realty.com is the point of contact on their end."
+N05,NOTES,,1,"Notes from the postmortem: the outage started around 03:14 UTC, traced back to a config push from 10.42.7.18 that wasn't reviewed."
+M01,MIXED,,7,"Full customer record pulled for the audit:
+
+Name: Sarah Chen
+Email: sarah.chen88@fernwood-realty.com
+Phone: (415) 555-0192
+Address: 20 Willowmere Dr, San Jose, CA 95112
+Card on file: 4111 1111 1111 1111, exp 09/28
+Account ID: 774920"
+M02,MIXED,,5,"Vendor security review — Marigold Robotics.
+
+Primary contact: Nadia Farouk (nadia.f@marigold-robotics.io)
+API credentials in use: fastino_live_7hQmN2pXeR9wLbK4vTzC1sD8
+Bank details for payment: IBAN DE44 5001 0517 5407 3249 31
+
+Flag if any of this should be rotated before the contract renews."
+M03,MIXED,,4,"Incident report draft — please review before I send to legal:
+
+On 2026-03-02, James Walsh's laptop was reported stolen. It had cached credentials for j.walsh@kestrel-freight.com and an SSH key linked to 10.42.7.18. His employee ID is 40219."
+M04,MIXED,,4,"KYC re-verification for a business account:
+
+Applicant: Omar Haddad
+National ID: OMH-2298-1147-05
+Passport: K5502217
+IBAN: FR76 3000 6000 0112 3456 7890 189
+
+Please confirm documents match name on file."
+M05,MIXED,,5,"Support handoff — everything needed to resolve ticket #70112 in one place:
+
+Customer: Priya Nandakumar
+Username: priya_n
+Email: priya.nandakumar@meridian-outfitters.com
+Phone: 720-555-0138
+Last 4 of card: 9021
+Issue: billed twice for the same order"
+M06,MIXED,,4,"Deploying the new auth service, here's everything that needs to be in the secrets manager before go-live:
+
+DB_PASSWORD=Qz7!vNpL2xR9
+JWT_SECRET=8f2e1a9c7b4d6e0f3a5c8b1d4e7f0a2c
+SUPPORT_EMAIL=help@brightpath-labs.com
+ADMIN_PHONE=800-555-0177
+
+Ping me once it's rotated in."

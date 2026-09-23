@@ -1,0 +1,1654 @@
+{
+  "dataset": "AI Privacy Gateway - Hand-Built Evaluation Set",
+  "version": "v1",
+  "purpose": "Metric 1 (Precision/Recall), Metric 2 (Independent Recall via residual scanner), Metric 3 (Semantic Fidelity, incl. inflected/all-caps subset per execution note 1)",
+  "count": 50,
+  "category_counts": {
+    "CODE": 8,
+    "SUPPORT": 9,
+    "EMAIL": 9,
+    "FINANCE": 7,
+    "HR": 6,
+    "NOTES": 5,
+    "MIXED": 6
+  },
+  "hard_case_counts": {
+    "inflection": 10,
+    "allcaps": 5
+  },
+  "entity_type_counts": {
+    "USERNAME": 5,
+    "PASSWORD": 3,
+    "API_KEY": 4,
+    "EMAIL": 18,
+    "ACCESS_TOKEN": 3,
+    "PERSON": 30,
+    "IP_ADDRESS": 3,
+    "URL": 2,
+    "CARD_NUMBER": 3,
+    "CARD_EXPIRY": 3,
+    "CARD_CVV": 1,
+    "RECOVERY_CODE": 1,
+    "PHONE_NUMBER": 6,
+    "DATE_OF_BIRTH": 2,
+    "CARD_LAST4": 3,
+    "ADDRESS": 5,
+    "IBAN": 5,
+    "NATIONAL_ID": 5,
+    "ORGANIZATION": 8,
+    "ROUTING_NUMBER": 4,
+    "BANK_ACCOUNT": 4,
+    "TAX_ID": 1,
+    "ACCOUNT_ID": 5,
+    "PASSPORT_NUMBER": 3,
+    "DRIVERS_LICENSE": 2,
+    "SECRET": 1
+  },
+  "notes": [
+    "All names, companies, emails, keys, and numbers are synthetic / fictional. Card numbers use well-known test ranges (e.g. 4111 1111 1111 1111); none are real.",
+    "Entity spans (start/end) are character offsets into the prompt's 'text' field, computed programmatically and validated against the text at build time.",
+    "'canonical' gives the base form of an entity whose surface form is inflected (possessive, initial) or re-cased (ALL CAPS), per execution note 1 in the Master Project Document (v3): these prompts are the required hard-case subset for the Semantic Fidelity metric, reported separately from the composite score.",
+    "'action' reflects the routing-table policy from the Master Project Document (Part 3.2): faker | redact | decision_routed | keep. Entity types outside the document's core seven are extrapolated from the same policy and should be confirmed by the team before use."
+  ],
+  "prompts": [
+    {
+      "id": "C01",
+      "category": "CODE",
+      "hard_case": [],
+      "text": "Can you review this config loader before I merge it?\n\nDB_USER=svc_deploy\nDB_PASSWORD=Tr0ub4dor&3\nSTRIPE_API_KEY=STRIPE_API_KEY_TEST_PLACEHOLDER\nADMIN_EMAIL=ops@brightpath-labs.com\n\nIt should read straight from .env, nothing hardcoded.",
+      "entities": [
+        {
+          "type": "USERNAME",
+          "surface": "svc_deploy",
+          "canonical": "svc_deploy",
+          "variant": "exact",
+          "start": 62,
+          "end": 72,
+          "action": "faker"
+        },
+        {
+          "type": "PASSWORD",
+          "surface": "Tr0ub4dor&3",
+          "canonical": "Tr0ub4dor&3",
+          "variant": "exact",
+          "start": 85,
+          "end": 96,
+          "action": "redact"
+        },
+        {
+          "type": "API_KEY",
+          "surface": "STRIPE_API_KEY_TEST_PLACEHOLDER",
+          "canonical": "STRIPE_API_KEY_TEST_PLACEHOLDER",
+          "variant": "exact",
+          "start": 112,
+          "end": 144,
+          "action": "redact"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "ops@brightpath-labs.com",
+          "canonical": "ops@brightpath-labs.com",
+          "variant": "exact",
+          "start": 157,
+          "end": 180,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "C02",
+      "category": "CODE",
+      "hard_case": [
+        "inflection"
+      ],
+      "text": "getting a 401 on staging even though the token looks valid:\n\nAuthorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJqY2FydGVyIiwiaWF0IjoxNzEyMzQ1NjAwfQ.4f9d0a1b2c3d4e5f6a7b8c9d0e1f2a3b\n\ncan someone check the middleware, this is blocking James Walsh's demo tomorrow",
+      "entities": [
+        {
+          "type": "ACCESS_TOKEN",
+          "surface": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJqY2FydGVyIiwiaWF0IjoxNzEyMzQ1NjAwfQ.4f9d0a1b2c3d4e5f6a7b8c9d0e1f2a3b",
+          "canonical": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJqY2FydGVyIiwiaWF0IjoxNzEyMzQ1NjAwfQ.4f9d0a1b2c3d4e5f6a7b8c9d0e1f2a3b",
+          "variant": "exact",
+          "start": 83,
+          "end": 199,
+          "action": "redact"
+        },
+        {
+          "type": "PERSON",
+          "surface": "James Walsh's",
+          "canonical": "James Walsh",
+          "variant": "possessive",
+          "start": 252,
+          "end": 265,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "C03",
+      "category": "CODE",
+      "hard_case": [],
+      "text": "Terraform apply is failing on the RDS module. Here's the connection string I'm using locally, not sure if it's stale:\n\npostgres://replicator:Kj8$mPz2Qw@10.42.7.18:5432/orders_prod\n\nAlso the AWS access key in my shell profile might be the wrong one:\nAKIA3F7QK9X2M4B1P8Z6",
+      "entities": [
+        {
+          "type": "USERNAME",
+          "surface": "replicator",
+          "canonical": "replicator",
+          "variant": "exact",
+          "start": 130,
+          "end": 140,
+          "action": "faker"
+        },
+        {
+          "type": "PASSWORD",
+          "surface": "Kj8$mPz2Qw",
+          "canonical": "Kj8$mPz2Qw",
+          "variant": "exact",
+          "start": 141,
+          "end": 151,
+          "action": "redact"
+        },
+        {
+          "type": "IP_ADDRESS",
+          "surface": "10.42.7.18",
+          "canonical": "10.42.7.18",
+          "variant": "exact",
+          "start": 152,
+          "end": 162,
+          "action": "faker"
+        },
+        {
+          "type": "API_KEY",
+          "surface": "AKIA3F7QK9X2M4B1P8Z6",
+          "canonical": "AKIA3F7QK9X2M4B1P8Z6",
+          "variant": "exact",
+          "start": 249,
+          "end": 269,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "C04",
+      "category": "CODE",
+      "hard_case": [],
+      "text": "Found this in the old CI logs, flagging in case it's still live:\n\nGITHUB_TOKEN=ghp_9kLmQ2vXpR7tYbN3wEaZcD5fH8jK1sV6uA0\nSLACK_WEBHOOK=https://hooks.slack.com/services/T02ABCXYZ/B04QWERTY/9f8e7d6c5b4a3210\n\nRotate both before the audit next week.",
+      "entities": [
+        {
+          "type": "ACCESS_TOKEN",
+          "surface": "ghp_9kLmQ2vXpR7tYbN3wEaZcD5fH8jK1sV6uA0",
+          "canonical": "ghp_9kLmQ2vXpR7tYbN3wEaZcD5fH8jK1sV6uA0",
+          "variant": "exact",
+          "start": 79,
+          "end": 118,
+          "action": "redact"
+        },
+        {
+          "type": "URL",
+          "surface": "https://hooks.slack.com/services/T02ABCXYZ/B04QWERTY/9f8e7d6c5b4a3210",
+          "canonical": "https://hooks.slack.com/services/T02ABCXYZ/B04QWERTY/9f8e7d6c5b4a3210",
+          "variant": "exact",
+          "start": 133,
+          "end": 202,
+          "action": "keep"
+        }
+      ]
+    },
+    {
+      "id": "C05",
+      "category": "CODE",
+      "hard_case": [],
+      "text": "Can you check why the webhook handler is timing out? Test payload below, note the customer's card is a real one from support so please don't log this anywhere:\n\ncard_number: 4111 1111 1111 1111\nexp: 09/28\ncvv: 402\nbilling_email: r.delacroix@northbrook-imports.com",
+      "entities": [
+        {
+          "type": "CARD_NUMBER",
+          "surface": "4111 1111 1111 1111",
+          "canonical": "4111 1111 1111 1111",
+          "variant": "exact",
+          "start": 174,
+          "end": 193,
+          "action": "redact"
+        },
+        {
+          "type": "CARD_EXPIRY",
+          "surface": "09/28",
+          "canonical": "09/28",
+          "variant": "exact",
+          "start": 199,
+          "end": 204,
+          "action": "redact"
+        },
+        {
+          "type": "CARD_CVV",
+          "surface": "402",
+          "canonical": "402",
+          "variant": "exact",
+          "start": 210,
+          "end": 213,
+          "action": "redact"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "r.delacroix@northbrook-imports.com",
+          "canonical": "r.delacroix@northbrook-imports.com",
+          "variant": "exact",
+          "start": 229,
+          "end": 263,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "C06",
+      "category": "CODE",
+      "hard_case": [],
+      "text": "Quick sanity check on this seed script before I run it against prod:\n\nINSERT INTO admins (username, email, recovery_code)\nVALUES ('m.ortiz', 'michael.ortiz@kestrel-freight.com', 'RC-88213-QZP7');\n\nDoes the recovery_code column need to be hashed at rest?",
+      "entities": [
+        {
+          "type": "USERNAME",
+          "surface": "m.ortiz",
+          "canonical": "m.ortiz",
+          "variant": "exact",
+          "start": 131,
+          "end": 138,
+          "action": "faker"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "michael.ortiz@kestrel-freight.com",
+          "canonical": "michael.ortiz@kestrel-freight.com",
+          "variant": "exact",
+          "start": 142,
+          "end": 175,
+          "action": "faker"
+        },
+        {
+          "type": "RECOVERY_CODE",
+          "surface": "RC-88213-QZP7",
+          "canonical": "RC-88213-QZP7",
+          "variant": "exact",
+          "start": 179,
+          "end": 192,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "C07",
+      "category": "CODE",
+      "hard_case": [],
+      "text": "This curl command works locally but not in the pipeline, any idea why?\n\ncurl -H \"X-API-Key: fastino_live_7hQmN2pXeR9wLbK4vTzC1sD8\" https://api.marigold-robotics.io/v2/orders/8841203\n\nGetting a 403 even though the key hasn't expired.",
+      "entities": [
+        {
+          "type": "API_KEY",
+          "surface": "fastino_live_7hQmN2pXeR9wLbK4vTzC1sD8",
+          "canonical": "fastino_live_7hQmN2pXeR9wLbK4vTzC1sD8",
+          "variant": "exact",
+          "start": 92,
+          "end": 129,
+          "action": "redact"
+        },
+        {
+          "type": "URL",
+          "surface": "https://api.marigold-robotics.io/v2/orders/8841203",
+          "canonical": "https://api.marigold-robotics.io/v2/orders/8841203",
+          "variant": "exact",
+          "start": 131,
+          "end": 181,
+          "action": "keep"
+        }
+      ]
+    },
+    {
+      "id": "C08",
+      "category": "CODE",
+      "hard_case": [],
+      "text": "Debugging the SSO callback. Here's a sample decoded assertion for a test user:\n\nNameID: elena.petrova@union-creek-bank.com\nSessionIndex: _b3f1a9d2e4c6f8a0b2d4e6f8a0c2e4f6\nIssueInstant: 2026-03-14T09:12:00Z\n\nThe SessionIndex looks like it's being reused across logins, is that expected?",
+      "entities": [
+        {
+          "type": "EMAIL",
+          "surface": "elena.petrova@union-creek-bank.com",
+          "canonical": "elena.petrova@union-creek-bank.com",
+          "variant": "exact",
+          "start": 88,
+          "end": 122,
+          "action": "faker"
+        },
+        {
+          "type": "ACCESS_TOKEN",
+          "surface": "_b3f1a9d2e4c6f8a0b2d4e6f8a0c2e4f6",
+          "canonical": "_b3f1a9d2e4c6f8a0b2d4e6f8a0c2e4f6",
+          "variant": "exact",
+          "start": 137,
+          "end": 170,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "S01",
+      "category": "SUPPORT",
+      "hard_case": [],
+      "text": "Ticket #48213 — customer says they were charged twice.\n\nName: Sarah Chen\nEmail: sarah.chen88@fernwood-realty.com\nPhone: (415) 555-0192\nOrder ref: FR-2026-00931\n\nCan billing confirm which charge to refund?",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "Sarah Chen",
+          "canonical": "Sarah Chen",
+          "variant": "exact",
+          "start": 62,
+          "end": 72,
+          "action": "faker"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "sarah.chen88@fernwood-realty.com",
+          "canonical": "sarah.chen88@fernwood-realty.com",
+          "variant": "exact",
+          "start": 80,
+          "end": 112,
+          "action": "faker"
+        },
+        {
+          "type": "PHONE_NUMBER",
+          "surface": "(415) 555-0192",
+          "canonical": "(415) 555-0192",
+          "variant": "exact",
+          "start": 120,
+          "end": 134,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "S02",
+      "category": "SUPPORT",
+      "hard_case": [
+        "allcaps"
+      ],
+      "text": "Escalation from Tier 1: customer locked out of account after password reset loop.\n\nFull name: THOMAS REYES\nDOB on file: 1984-11-02\nLast 4 of card on file: 7734\n\nHe's asked to speak with a supervisor directly.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "THOMAS REYES",
+          "canonical": "Thomas Reyes",
+          "variant": "allcaps",
+          "start": 94,
+          "end": 106,
+          "action": "faker"
+        },
+        {
+          "type": "DATE_OF_BIRTH",
+          "surface": "1984-11-02",
+          "canonical": "1984-11-02",
+          "variant": "exact",
+          "start": 120,
+          "end": 130,
+          "action": "faker"
+        },
+        {
+          "type": "CARD_LAST4",
+          "surface": "7734",
+          "canonical": "7734",
+          "variant": "exact",
+          "start": 155,
+          "end": 159,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "S03",
+      "category": "SUPPORT",
+      "hard_case": [],
+      "text": "Following up on ticket #55210. Customer's shipping address bounced:\n\nNadia Farouk — 118 Copperline Ave, Unit 4B, Portland, OR 97205\n\nPlease confirm before we reship.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "Nadia Farouk",
+          "canonical": "Nadia Farouk",
+          "variant": "exact",
+          "start": 69,
+          "end": 81,
+          "action": "faker"
+        },
+        {
+          "type": "ADDRESS",
+          "surface": "118 Copperline Ave, Unit 4B, Portland, OR 97205",
+          "canonical": "118 Copperline Ave, Unit 4B, Portland, OR 97205",
+          "variant": "exact",
+          "start": 84,
+          "end": 131,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "S04",
+      "category": "SUPPORT",
+      "hard_case": [
+        "inflection"
+      ],
+      "text": "Customer David Kim's account shows a duplicate subscription. His email on file is d.kim@solvane-health.io and the duplicate charge posted on 2026-02-11. Can we merge the two accounts?",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "David Kim's",
+          "canonical": "David Kim",
+          "variant": "possessive",
+          "start": 9,
+          "end": 20,
+          "action": "faker"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "d.kim@solvane-health.io",
+          "canonical": "d.kim@solvane-health.io",
+          "variant": "exact",
+          "start": 82,
+          "end": 105,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "S05",
+      "category": "SUPPORT",
+      "hard_case": [
+        "inflection"
+      ],
+      "text": "Complaint from a long-time customer, please prioritize:\n\nJ. Bennett called in furious about a data export that included another user's info. Callback number: 312-555-0147. Wants a written apology.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "J. Bennett",
+          "canonical": "Laura Bennett",
+          "variant": "initial",
+          "start": 57,
+          "end": 67,
+          "action": "faker"
+        },
+        {
+          "type": "PHONE_NUMBER",
+          "surface": "312-555-0147",
+          "canonical": "312-555-0147",
+          "variant": "exact",
+          "start": 158,
+          "end": 170,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "S06",
+      "category": "SUPPORT",
+      "hard_case": [],
+      "text": "New chat transcript flagged for review — possible account takeover:\n\nuser: hi this isn't priya, this is her brother, she asked me to update the password on her account priya.nandakumar@meridian-outfitters.com\nagent: for security we can only make changes with the account holder present\n\nCan someone confirm this was handled correctly?",
+      "entities": [
+        {
+          "type": "EMAIL",
+          "surface": "priya.nandakumar@meridian-outfitters.com",
+          "canonical": "priya.nandakumar@meridian-outfitters.com",
+          "variant": "exact",
+          "start": 168,
+          "end": 208,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "S07",
+      "category": "SUPPORT",
+      "hard_case": [
+        "allcaps"
+      ],
+      "text": "Refund request, ticket #61094.\n\nCustomer: OMAR HADDAD\nIBAN for refund: DE89 3704 0044 0532 0130 00\nReason: item never arrived\n\nPlease process by Friday.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "OMAR HADDAD",
+          "canonical": "Omar Haddad",
+          "variant": "allcaps",
+          "start": 42,
+          "end": 53,
+          "action": "faker"
+        },
+        {
+          "type": "IBAN",
+          "surface": "DE89 3704 0044 0532 0130 00",
+          "canonical": "DE89 3704 0044 0532 0130 00",
+          "variant": "exact",
+          "start": 71,
+          "end": 98,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "S08",
+      "category": "SUPPORT",
+      "hard_case": [],
+      "text": "Following up — the customer (username: kestrel_jwalsh) says their API integration stopped authenticating after last night's deploy. Their account email is j.walsh@kestrel-freight.com. Can engineering check the token service logs?",
+      "entities": [
+        {
+          "type": "USERNAME",
+          "surface": "kestrel_jwalsh",
+          "canonical": "kestrel_jwalsh",
+          "variant": "exact",
+          "start": 39,
+          "end": 53,
+          "action": "faker"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "j.walsh@kestrel-freight.com",
+          "canonical": "j.walsh@kestrel-freight.com",
+          "variant": "exact",
+          "start": 155,
+          "end": 182,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "S09",
+      "category": "SUPPORT",
+      "hard_case": [],
+      "text": "Ticket #59902 — customer wants their national ID removed from our KYC records per their request.\n\nName: Elena Petrova\nNational ID: RUS-4471-8829-03\nSubmitted: 2026-01-30\n\nPlease confirm deletion once processed.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "Elena Petrova",
+          "canonical": "Elena Petrova",
+          "variant": "exact",
+          "start": 104,
+          "end": 117,
+          "action": "faker"
+        },
+        {
+          "type": "NATIONAL_ID",
+          "surface": "RUS-4471-8829-03",
+          "canonical": "RUS-4471-8829-03",
+          "variant": "exact",
+          "start": 131,
+          "end": 147,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "E01",
+      "category": "EMAIL",
+      "hard_case": [],
+      "text": "Hi team,\n\nForwarding this from James Walsh — he needs the Q1 deck before his 2pm with the board. His direct line is 646-555-0110 if anything's unclear.\n\nThanks,\nPriya",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "James Walsh",
+          "canonical": "James Walsh",
+          "variant": "exact",
+          "start": 31,
+          "end": 42,
+          "action": "faker"
+        },
+        {
+          "type": "PHONE_NUMBER",
+          "surface": "646-555-0110",
+          "canonical": "646-555-0110",
+          "variant": "exact",
+          "start": 116,
+          "end": 128,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "E02",
+      "category": "EMAIL",
+      "hard_case": [],
+      "text": "Subject: Re: Offer letter — please review\n\nHi Michael,\n\nAttaching the signed offer for our new hire. Home address for the equipment shipment: 44 Larkspur Ct, Austin, TX 78704. Start date is March 2nd.\n\nBest,\nSarah",
+      "entities": [
+        {
+          "type": "ADDRESS",
+          "surface": "44 Larkspur Ct, Austin, TX 78704",
+          "canonical": "44 Larkspur Ct, Austin, TX 78704",
+          "variant": "exact",
+          "start": 142,
+          "end": 174,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "E03",
+      "category": "EMAIL",
+      "hard_case": [],
+      "text": "Subject: Wire instructions attached\n\nPlease use the following for the vendor payment:\n\nBank: Union Creek Bank\nRouting: 071000013\nAccount: 4400981123\n\nConfirm once sent so I can close the PO.",
+      "entities": [
+        {
+          "type": "ORGANIZATION",
+          "surface": "Union Creek Bank",
+          "canonical": "Union Creek Bank",
+          "variant": "exact",
+          "start": 93,
+          "end": 109,
+          "action": "decision_routed"
+        },
+        {
+          "type": "ROUTING_NUMBER",
+          "surface": "071000013",
+          "canonical": "071000013",
+          "variant": "exact",
+          "start": 119,
+          "end": 128,
+          "action": "redact"
+        },
+        {
+          "type": "BANK_ACCOUNT",
+          "surface": "4400981123",
+          "canonical": "4400981123",
+          "variant": "exact",
+          "start": 138,
+          "end": 148,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "E04",
+      "category": "EMAIL",
+      "hard_case": [
+        "inflection",
+        "allcaps"
+      ],
+      "text": "Hey — can you pull THOMAS REYES' access logs for the security review? Compliance wants everything from the last 90 days by end of week.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "THOMAS REYES'",
+          "canonical": "Thomas Reyes",
+          "variant": "allcaps-possessive",
+          "start": 19,
+          "end": 32,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "E05",
+      "category": "EMAIL",
+      "hard_case": [],
+      "text": "Subject: New vendor onboarding — Marigold Robotics\n\nTheir primary contact is nadia.f@marigold-robotics.io and their tax ID for our records is 87-2210934. Finance needs this before they can cut the first PO.",
+      "entities": [
+        {
+          "type": "ORGANIZATION",
+          "surface": "Marigold Robotics",
+          "canonical": "Marigold Robotics",
+          "variant": "exact",
+          "start": 33,
+          "end": 50,
+          "action": "decision_routed"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "nadia.f@marigold-robotics.io",
+          "canonical": "nadia.f@marigold-robotics.io",
+          "variant": "exact",
+          "start": 77,
+          "end": 105,
+          "action": "faker"
+        },
+        {
+          "type": "TAX_ID",
+          "surface": "87-2210934",
+          "canonical": "87-2210934",
+          "variant": "exact",
+          "start": 142,
+          "end": 152,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "E06",
+      "category": "EMAIL",
+      "hard_case": [
+        "inflection"
+      ],
+      "text": "Quick one — David's badge access didn't work this morning. Can facilities check why? He's in the west wing, badge number 55231.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "David's",
+          "canonical": "David Kim",
+          "variant": "possessive-first-name",
+          "start": 12,
+          "end": 19,
+          "action": "faker"
+        },
+        {
+          "type": "ACCOUNT_ID",
+          "surface": "55231",
+          "canonical": "55231",
+          "variant": "exact",
+          "start": 121,
+          "end": 126,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "E07",
+      "category": "EMAIL",
+      "hard_case": [
+        "inflection"
+      ],
+      "text": "Subject: Passport copy for visa sponsorship\n\nAttached is Omar's passport for the visa paperwork — passport number K4471982, expires 2029-06-15. Let me know if legal needs anything else.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "Omar's",
+          "canonical": "Omar Haddad",
+          "variant": "possessive-first-name",
+          "start": 57,
+          "end": 63,
+          "action": "faker"
+        },
+        {
+          "type": "PASSPORT_NUMBER",
+          "surface": "K4471982",
+          "canonical": "K4471982",
+          "variant": "exact",
+          "start": 114,
+          "end": 122,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "E08",
+      "category": "EMAIL",
+      "hard_case": [
+        "allcaps"
+      ],
+      "text": "Hi all,\n\nReminder that SARAH CHEN is out next week — please route anything urgent to her backup, Laura Bennett, at l.bennett@fernwood-realty.com.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "SARAH CHEN",
+          "canonical": "Sarah Chen",
+          "variant": "allcaps",
+          "start": 23,
+          "end": 33,
+          "action": "faker"
+        },
+        {
+          "type": "PERSON",
+          "surface": "Laura Bennett",
+          "canonical": "Laura Bennett",
+          "variant": "exact",
+          "start": 97,
+          "end": 110,
+          "action": "faker"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "l.bennett@fernwood-realty.com",
+          "canonical": "l.bennett@fernwood-realty.com",
+          "variant": "exact",
+          "start": 115,
+          "end": 144,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "E09",
+      "category": "EMAIL",
+      "hard_case": [
+        "inflection"
+      ],
+      "text": "Subject: Driver's license on file needs updating\n\nj.carter's license expired last month — new number is D-99214477, exp 2030-08-01. Can HR update before the fleet audit?",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "j.carter's",
+          "canonical": "James Carter",
+          "variant": "possessive-username-style",
+          "start": 50,
+          "end": 60,
+          "action": "faker"
+        },
+        {
+          "type": "DRIVERS_LICENSE",
+          "surface": "D-99214477",
+          "canonical": "D-99214477",
+          "variant": "exact",
+          "start": 104,
+          "end": 114,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "F01",
+      "category": "FINANCE",
+      "hard_case": [],
+      "text": "Invoice #INV-88213 from Kestrel Freight — amount due $14,208.50, due 2026-04-01. Remit to account 220098817, routing 091000019.",
+      "entities": [
+        {
+          "type": "ORGANIZATION",
+          "surface": "Kestrel Freight",
+          "canonical": "Kestrel Freight",
+          "variant": "exact",
+          "start": 24,
+          "end": 39,
+          "action": "decision_routed"
+        },
+        {
+          "type": "BANK_ACCOUNT",
+          "surface": "220098817",
+          "canonical": "220098817",
+          "variant": "exact",
+          "start": 98,
+          "end": 107,
+          "action": "redact"
+        },
+        {
+          "type": "ROUTING_NUMBER",
+          "surface": "091000019",
+          "canonical": "091000019",
+          "variant": "exact",
+          "start": 117,
+          "end": 126,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "F02",
+      "category": "FINANCE",
+      "hard_case": [],
+      "text": "Expense report flagged for review — receipt shows card ending 4471, charged $892.00 at a hotel in Chicago on 2026-02-19. Employee: David Kim.",
+      "entities": [
+        {
+          "type": "CARD_LAST4",
+          "surface": "4471",
+          "canonical": "4471",
+          "variant": "exact",
+          "start": 62,
+          "end": 66,
+          "action": "redact"
+        },
+        {
+          "type": "PERSON",
+          "surface": "David Kim",
+          "canonical": "David Kim",
+          "variant": "exact",
+          "start": 131,
+          "end": 140,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "F03",
+      "category": "FINANCE",
+      "hard_case": [],
+      "text": "Payroll correction needed for employee ID 88231 — direct deposit account was entered wrong. Correct IBAN: GB29 NWBK 6016 1331 9268 19.",
+      "entities": [
+        {
+          "type": "ACCOUNT_ID",
+          "surface": "88231",
+          "canonical": "88231",
+          "variant": "exact",
+          "start": 42,
+          "end": 47,
+          "action": "faker"
+        },
+        {
+          "type": "IBAN",
+          "surface": "GB29 NWBK 6016 1331 9268 19",
+          "canonical": "GB29 NWBK 6016 1331 9268 19",
+          "variant": "exact",
+          "start": 106,
+          "end": 133,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "F04",
+      "category": "FINANCE",
+      "hard_case": [],
+      "text": "Can finance confirm this wire cleared? Sender: Marigold Robotics, reference MR-2026-0043, amount €48,200.00, beneficiary account DE44 5001 0517 5407 3249 31.",
+      "entities": [
+        {
+          "type": "ORGANIZATION",
+          "surface": "Marigold Robotics",
+          "canonical": "Marigold Robotics",
+          "variant": "exact",
+          "start": 47,
+          "end": 64,
+          "action": "decision_routed"
+        },
+        {
+          "type": "IBAN",
+          "surface": "DE44 5001 0517 5407 3249 31",
+          "canonical": "DE44 5001 0517 5407 3249 31",
+          "variant": "exact",
+          "start": 129,
+          "end": 156,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "F05",
+      "category": "FINANCE",
+      "hard_case": [
+        "allcaps"
+      ],
+      "text": "Reimbursement request — mileage + card statement attached. Card on file: 5500 **** **** 3391, exp 11/27. Employee: NADIA FAROUK.",
+      "entities": [
+        {
+          "type": "CARD_NUMBER",
+          "surface": "5500 **** **** 3391",
+          "canonical": "5500 **** **** 3391",
+          "variant": "exact",
+          "start": 73,
+          "end": 92,
+          "action": "redact"
+        },
+        {
+          "type": "CARD_EXPIRY",
+          "surface": "11/27",
+          "canonical": "11/27",
+          "variant": "exact",
+          "start": 98,
+          "end": 103,
+          "action": "redact"
+        },
+        {
+          "type": "PERSON",
+          "surface": "NADIA FAROUK",
+          "canonical": "Nadia Farouk",
+          "variant": "allcaps",
+          "start": 115,
+          "end": 127,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "F06",
+      "category": "FINANCE",
+      "hard_case": [],
+      "text": "Tax filing draft — SSN on file for contractor is 552-71-0043, please confirm before we submit the 1099.",
+      "entities": [
+        {
+          "type": "NATIONAL_ID",
+          "surface": "552-71-0043",
+          "canonical": "552-71-0043",
+          "variant": "exact",
+          "start": 49,
+          "end": 60,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "F07",
+      "category": "FINANCE",
+      "hard_case": [],
+      "text": "Loan application update for applicant Michael Ortiz. Routing 026009593, account 7734012298, requested amount $22,000.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "Michael Ortiz",
+          "canonical": "Michael Ortiz",
+          "variant": "exact",
+          "start": 38,
+          "end": 51,
+          "action": "faker"
+        },
+        {
+          "type": "ROUTING_NUMBER",
+          "surface": "026009593",
+          "canonical": "026009593",
+          "variant": "exact",
+          "start": 61,
+          "end": 70,
+          "action": "redact"
+        },
+        {
+          "type": "BANK_ACCOUNT",
+          "surface": "7734012298",
+          "canonical": "7734012298",
+          "variant": "exact",
+          "start": 80,
+          "end": 90,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "H01",
+      "category": "HR",
+      "hard_case": [],
+      "text": "New hire paperwork for Priya Nandakumar — DOB 1991-07-22, home address 89 Thistledown Rd, Denver, CO 80206. Start date March 2nd.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "Priya Nandakumar",
+          "canonical": "Priya Nandakumar",
+          "variant": "exact",
+          "start": 23,
+          "end": 39,
+          "action": "faker"
+        },
+        {
+          "type": "DATE_OF_BIRTH",
+          "surface": "1991-07-22",
+          "canonical": "1991-07-22",
+          "variant": "exact",
+          "start": 46,
+          "end": 56,
+          "action": "faker"
+        },
+        {
+          "type": "ADDRESS",
+          "surface": "89 Thistledown Rd, Denver, CO 80206",
+          "canonical": "89 Thistledown Rd, Denver, CO 80206",
+          "variant": "exact",
+          "start": 71,
+          "end": 106,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "H02",
+      "category": "HR",
+      "hard_case": [
+        "inflection"
+      ],
+      "text": "Benefits enrollment issue — Thomas Reyes' dependent info didn't save. SSN on file for verification: 441-09-2287.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "Thomas Reyes'",
+          "canonical": "Thomas Reyes",
+          "variant": "possessive",
+          "start": 28,
+          "end": 41,
+          "action": "faker"
+        },
+        {
+          "type": "NATIONAL_ID",
+          "surface": "441-09-2287",
+          "canonical": "441-09-2287",
+          "variant": "exact",
+          "start": 100,
+          "end": 111,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "H03",
+      "category": "HR",
+      "hard_case": [],
+      "text": "Termination checklist for employee 66120 — final paycheck to be direct deposited to account 990041123, routing 121000358.",
+      "entities": [
+        {
+          "type": "ACCOUNT_ID",
+          "surface": "66120",
+          "canonical": "66120",
+          "variant": "exact",
+          "start": 35,
+          "end": 40,
+          "action": "faker"
+        },
+        {
+          "type": "BANK_ACCOUNT",
+          "surface": "990041123",
+          "canonical": "990041123",
+          "variant": "exact",
+          "start": 92,
+          "end": 101,
+          "action": "redact"
+        },
+        {
+          "type": "ROUTING_NUMBER",
+          "surface": "121000358",
+          "canonical": "121000358",
+          "variant": "exact",
+          "start": 111,
+          "end": 120,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "H04",
+      "category": "HR",
+      "hard_case": [
+        "inflection"
+      ],
+      "text": "Background check came back for J. Walsh — driver's license D-44120987 confirmed valid, no flags.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "J. Walsh",
+          "canonical": "James Walsh",
+          "variant": "initial",
+          "start": 31,
+          "end": 39,
+          "action": "faker"
+        },
+        {
+          "type": "DRIVERS_LICENSE",
+          "surface": "D-44120987",
+          "canonical": "D-44120987",
+          "variant": "exact",
+          "start": 59,
+          "end": 69,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "H05",
+      "category": "HR",
+      "hard_case": [],
+      "text": "Relocation package for Elena Petrova — new address 12 Birchwood Ln, Seattle, WA 98109, passport K7723410 needed for visa transfer.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "Elena Petrova",
+          "canonical": "Elena Petrova",
+          "variant": "exact",
+          "start": 23,
+          "end": 36,
+          "action": "faker"
+        },
+        {
+          "type": "ADDRESS",
+          "surface": "12 Birchwood Ln, Seattle, WA 98109",
+          "canonical": "12 Birchwood Ln, Seattle, WA 98109",
+          "variant": "exact",
+          "start": 51,
+          "end": 85,
+          "action": "faker"
+        },
+        {
+          "type": "PASSPORT_NUMBER",
+          "surface": "K7723410",
+          "canonical": "K7723410",
+          "variant": "exact",
+          "start": 96,
+          "end": 104,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "H06",
+      "category": "HR",
+      "hard_case": [
+        "inflection"
+      ],
+      "text": "Compliance flagged David Kim's I-9 as incomplete — need his passport number on file, currently blank, SSN 220-88-1147 present but unverified.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "David Kim's",
+          "canonical": "David Kim",
+          "variant": "possessive",
+          "start": 19,
+          "end": 30,
+          "action": "faker"
+        },
+        {
+          "type": "NATIONAL_ID",
+          "surface": "220-88-1147",
+          "canonical": "220-88-1147",
+          "variant": "exact",
+          "start": 106,
+          "end": 117,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "N01",
+      "category": "NOTES",
+      "hard_case": [],
+      "text": "Standup notes — Sarah mentioned the Marigold Robotics integration is blocked on their side, waiting on nadia.f@marigold-robotics.io to confirm API scopes.",
+      "entities": [
+        {
+          "type": "ORGANIZATION",
+          "surface": "Marigold Robotics",
+          "canonical": "Marigold Robotics",
+          "variant": "exact",
+          "start": 36,
+          "end": 53,
+          "action": "decision_routed"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "nadia.f@marigold-robotics.io",
+          "canonical": "nadia.f@marigold-robotics.io",
+          "variant": "exact",
+          "start": 103,
+          "end": 131,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "N02",
+      "category": "NOTES",
+      "hard_case": [],
+      "text": "Retro notes: James flagged that the staging DB still has David Kim's real email in the seed data (d.kim@solvane-health.io) — needs to be scrubbed before the demo.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "David Kim",
+          "canonical": "David Kim",
+          "variant": "exact",
+          "start": 57,
+          "end": 66,
+          "action": "faker"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "d.kim@solvane-health.io",
+          "canonical": "d.kim@solvane-health.io",
+          "variant": "exact",
+          "start": 98,
+          "end": 121,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "N03",
+      "category": "NOTES",
+      "hard_case": [],
+      "text": "1:1 notes with Michael — he's onboarding onto the Kestrel Freight account, needs read access to their shared drive by Friday.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "Michael",
+          "canonical": "Michael",
+          "variant": "first-name-only",
+          "start": 15,
+          "end": 22,
+          "action": "faker"
+        },
+        {
+          "type": "ORGANIZATION",
+          "surface": "Kestrel Freight",
+          "canonical": "Kestrel Freight",
+          "variant": "exact",
+          "start": 50,
+          "end": 65,
+          "action": "decision_routed"
+        }
+      ]
+    },
+    {
+      "id": "N04",
+      "category": "NOTES",
+      "hard_case": [],
+      "text": "Planning notes: budget approved for the Fernwood Realty pilot, sarah.chen88@fernwood-realty.com is the point of contact on their end.",
+      "entities": [
+        {
+          "type": "ORGANIZATION",
+          "surface": "Fernwood Realty",
+          "canonical": "Fernwood Realty",
+          "variant": "exact",
+          "start": 40,
+          "end": 55,
+          "action": "decision_routed"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "sarah.chen88@fernwood-realty.com",
+          "canonical": "sarah.chen88@fernwood-realty.com",
+          "variant": "exact",
+          "start": 63,
+          "end": 95,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "N05",
+      "category": "NOTES",
+      "hard_case": [],
+      "text": "Notes from the postmortem: the outage started around 03:14 UTC, traced back to a config push from 10.42.7.18 that wasn't reviewed.",
+      "entities": [
+        {
+          "type": "IP_ADDRESS",
+          "surface": "10.42.7.18",
+          "canonical": "10.42.7.18",
+          "variant": "exact",
+          "start": 98,
+          "end": 108,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "M01",
+      "category": "MIXED",
+      "hard_case": [],
+      "text": "Full customer record pulled for the audit:\n\nName: Sarah Chen\nEmail: sarah.chen88@fernwood-realty.com\nPhone: (415) 555-0192\nAddress: 20 Willowmere Dr, San Jose, CA 95112\nCard on file: 4111 1111 1111 1111, exp 09/28\nAccount ID: 774920",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "Sarah Chen",
+          "canonical": "Sarah Chen",
+          "variant": "exact",
+          "start": 50,
+          "end": 60,
+          "action": "faker"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "sarah.chen88@fernwood-realty.com",
+          "canonical": "sarah.chen88@fernwood-realty.com",
+          "variant": "exact",
+          "start": 68,
+          "end": 100,
+          "action": "faker"
+        },
+        {
+          "type": "PHONE_NUMBER",
+          "surface": "(415) 555-0192",
+          "canonical": "(415) 555-0192",
+          "variant": "exact",
+          "start": 108,
+          "end": 122,
+          "action": "faker"
+        },
+        {
+          "type": "ADDRESS",
+          "surface": "20 Willowmere Dr, San Jose, CA 95112",
+          "canonical": "20 Willowmere Dr, San Jose, CA 95112",
+          "variant": "exact",
+          "start": 132,
+          "end": 168,
+          "action": "faker"
+        },
+        {
+          "type": "CARD_NUMBER",
+          "surface": "4111 1111 1111 1111",
+          "canonical": "4111 1111 1111 1111",
+          "variant": "exact",
+          "start": 183,
+          "end": 202,
+          "action": "redact"
+        },
+        {
+          "type": "CARD_EXPIRY",
+          "surface": "09/28",
+          "canonical": "09/28",
+          "variant": "exact",
+          "start": 208,
+          "end": 213,
+          "action": "redact"
+        },
+        {
+          "type": "ACCOUNT_ID",
+          "surface": "774920",
+          "canonical": "774920",
+          "variant": "exact",
+          "start": 226,
+          "end": 232,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "M02",
+      "category": "MIXED",
+      "hard_case": [],
+      "text": "Vendor security review — Marigold Robotics.\n\nPrimary contact: Nadia Farouk (nadia.f@marigold-robotics.io)\nAPI credentials in use: fastino_live_7hQmN2pXeR9wLbK4vTzC1sD8\nBank details for payment: IBAN DE44 5001 0517 5407 3249 31\n\nFlag if any of this should be rotated before the contract renews.",
+      "entities": [
+        {
+          "type": "ORGANIZATION",
+          "surface": "Marigold Robotics",
+          "canonical": "Marigold Robotics",
+          "variant": "exact",
+          "start": 25,
+          "end": 42,
+          "action": "decision_routed"
+        },
+        {
+          "type": "PERSON",
+          "surface": "Nadia Farouk",
+          "canonical": "Nadia Farouk",
+          "variant": "exact",
+          "start": 62,
+          "end": 74,
+          "action": "faker"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "nadia.f@marigold-robotics.io",
+          "canonical": "nadia.f@marigold-robotics.io",
+          "variant": "exact",
+          "start": 76,
+          "end": 104,
+          "action": "faker"
+        },
+        {
+          "type": "API_KEY",
+          "surface": "fastino_live_7hQmN2pXeR9wLbK4vTzC1sD8",
+          "canonical": "fastino_live_7hQmN2pXeR9wLbK4vTzC1sD8",
+          "variant": "exact",
+          "start": 130,
+          "end": 167,
+          "action": "redact"
+        },
+        {
+          "type": "IBAN",
+          "surface": "DE44 5001 0517 5407 3249 31",
+          "canonical": "DE44 5001 0517 5407 3249 31",
+          "variant": "exact",
+          "start": 199,
+          "end": 226,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "M03",
+      "category": "MIXED",
+      "hard_case": [],
+      "text": "Incident report draft — please review before I send to legal:\n\nOn 2026-03-02, James Walsh's laptop was reported stolen. It had cached credentials for j.walsh@kestrel-freight.com and an SSH key linked to 10.42.7.18. His employee ID is 40219.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "James Walsh",
+          "canonical": "James Walsh",
+          "variant": "exact",
+          "start": 78,
+          "end": 89,
+          "action": "faker"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "j.walsh@kestrel-freight.com",
+          "canonical": "j.walsh@kestrel-freight.com",
+          "variant": "exact",
+          "start": 150,
+          "end": 177,
+          "action": "faker"
+        },
+        {
+          "type": "IP_ADDRESS",
+          "surface": "10.42.7.18",
+          "canonical": "10.42.7.18",
+          "variant": "exact",
+          "start": 203,
+          "end": 213,
+          "action": "faker"
+        },
+        {
+          "type": "ACCOUNT_ID",
+          "surface": "40219",
+          "canonical": "40219",
+          "variant": "exact",
+          "start": 234,
+          "end": 239,
+          "action": "faker"
+        }
+      ]
+    },
+    {
+      "id": "M04",
+      "category": "MIXED",
+      "hard_case": [],
+      "text": "KYC re-verification for a business account:\n\nApplicant: Omar Haddad\nNational ID: OMH-2298-1147-05\nPassport: K5502217\nIBAN: FR76 3000 6000 0112 3456 7890 189\n\nPlease confirm documents match name on file.",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "Omar Haddad",
+          "canonical": "Omar Haddad",
+          "variant": "exact",
+          "start": 56,
+          "end": 67,
+          "action": "faker"
+        },
+        {
+          "type": "NATIONAL_ID",
+          "surface": "OMH-2298-1147-05",
+          "canonical": "OMH-2298-1147-05",
+          "variant": "exact",
+          "start": 81,
+          "end": 97,
+          "action": "redact"
+        },
+        {
+          "type": "PASSPORT_NUMBER",
+          "surface": "K5502217",
+          "canonical": "K5502217",
+          "variant": "exact",
+          "start": 108,
+          "end": 116,
+          "action": "redact"
+        },
+        {
+          "type": "IBAN",
+          "surface": "FR76 3000 6000 0112 3456 7890 189",
+          "canonical": "FR76 3000 6000 0112 3456 7890 189",
+          "variant": "exact",
+          "start": 123,
+          "end": 156,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "M05",
+      "category": "MIXED",
+      "hard_case": [],
+      "text": "Support handoff — everything needed to resolve ticket #70112 in one place:\n\nCustomer: Priya Nandakumar\nUsername: priya_n\nEmail: priya.nandakumar@meridian-outfitters.com\nPhone: 720-555-0138\nLast 4 of card: 9021\nIssue: billed twice for the same order",
+      "entities": [
+        {
+          "type": "PERSON",
+          "surface": "Priya Nandakumar",
+          "canonical": "Priya Nandakumar",
+          "variant": "exact",
+          "start": 86,
+          "end": 102,
+          "action": "faker"
+        },
+        {
+          "type": "USERNAME",
+          "surface": "priya_n",
+          "canonical": "priya_n",
+          "variant": "exact",
+          "start": 113,
+          "end": 120,
+          "action": "faker"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "priya.nandakumar@meridian-outfitters.com",
+          "canonical": "priya.nandakumar@meridian-outfitters.com",
+          "variant": "exact",
+          "start": 128,
+          "end": 168,
+          "action": "faker"
+        },
+        {
+          "type": "PHONE_NUMBER",
+          "surface": "720-555-0138",
+          "canonical": "720-555-0138",
+          "variant": "exact",
+          "start": 176,
+          "end": 188,
+          "action": "faker"
+        },
+        {
+          "type": "CARD_LAST4",
+          "surface": "9021",
+          "canonical": "9021",
+          "variant": "exact",
+          "start": 205,
+          "end": 209,
+          "action": "redact"
+        }
+      ]
+    },
+    {
+      "id": "M06",
+      "category": "MIXED",
+      "hard_case": [],
+      "text": "Deploying the new auth service, here's everything that needs to be in the secrets manager before go-live:\n\nDB_PASSWORD=Qz7!vNpL2xR9\nJWT_SECRET=8f2e1a9c7b4d6e0f3a5c8b1d4e7f0a2c\nSUPPORT_EMAIL=help@brightpath-labs.com\nADMIN_PHONE=800-555-0177\n\nPing me once it's rotated in.",
+      "entities": [
+        {
+          "type": "PASSWORD",
+          "surface": "Qz7!vNpL2xR9",
+          "canonical": "Qz7!vNpL2xR9",
+          "variant": "exact",
+          "start": 119,
+          "end": 131,
+          "action": "redact"
+        },
+        {
+          "type": "SECRET",
+          "surface": "8f2e1a9c7b4d6e0f3a5c8b1d4e7f0a2c",
+          "canonical": "8f2e1a9c7b4d6e0f3a5c8b1d4e7f0a2c",
+          "variant": "exact",
+          "start": 143,
+          "end": 175,
+          "action": "redact"
+        },
+        {
+          "type": "EMAIL",
+          "surface": "help@brightpath-labs.com",
+          "canonical": "help@brightpath-labs.com",
+          "variant": "exact",
+          "start": 190,
+          "end": 214,
+          "action": "faker"
+        },
+        {
+          "type": "PHONE_NUMBER",
+          "surface": "800-555-0177",
+          "canonical": "800-555-0177",
+          "variant": "exact",
+          "start": 227,
+          "end": 239,
+          "action": "faker"
+        }
+      ]
+    }
+  ]
+}

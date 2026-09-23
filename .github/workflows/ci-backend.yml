@@ -1,0 +1,15 @@
+name: CI - Backends
+on:
+  pull_request:
+    paths: ["local-backend/**", "cloud-backend/**"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { service: [local-backend, cloud-backend] }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r ${{ matrix.service }}/requirements.txt
+      - run: pytest ${{ matrix.service }}/tests

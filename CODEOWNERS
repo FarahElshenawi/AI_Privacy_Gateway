@@ -1,0 +1,17 @@
+# Enforced review routing. Role numbers map to docs/development-plan.md Part 2.1.
+# GitHub team handles to be substituted once the repo is created under an org.
+
+/extension/                        @role-3
+/local-backend/app/pipeline/detection.py         @role-1
+/local-backend/app/pipeline/residual_scanner.py  @role-1
+/local-backend/app/pipeline/routing.py           @role-4
+/local-backend/app/pipeline/decision.py          @role-4
+/local-backend/app/pipeline/masking.py           @role-3
+/local-backend/app/vault/          @role-2
+/local-backend/app/security/       @role-2
+/local-backend/app/api/            @role-2
+/cloud-backend/                    @role-5
+/dashboard/                        @role-2
+/eval/                             @role-1
+/infra/                            @role-5
+/docs/                             @role-1 @role-2 @role-3 @role-4 @role-5
