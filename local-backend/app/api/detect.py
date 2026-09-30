@@ -18,7 +18,7 @@ router = APIRouter()
 
 class DetectRequest(BaseModel):
     text: str
-    schema: list[str] | None = None
+    entity_schema: list[str] | None = None
 
 
 class DetectResponse(BaseModel):
@@ -42,5 +42,5 @@ async def detect_pii(
     if not verify_token(token):
         raise HTTPException(status_code=401, detail="Invalid or missing token")
 
-    entities = detect(body.text, body.schema)
+    entities = detect(body.text, body.entity_schema)
     return DetectResponse(entities=entities, count=len(entities))

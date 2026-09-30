@@ -10,7 +10,6 @@ to files. The vault stores the reverse mapping for response restoration.
 """
 from __future__ import annotations
 
-import re
 from typing import Optional
 
 from app.pipeline.routing import route
@@ -58,73 +57,74 @@ def mask_entities(entities: list[dict], conversation_id: str = "default") -> lis
         These pairs are passed to reconstructors and also stored in the vault.
     """
     vault = get_vault()
-    pairs: list[tuple[str, str]] = []
-    seen_originals: set[str] = set()
-    conv = vault.get_conversation(conversation_id)
-    existing_fakes = set(conv.get_all_fakes()) if conv else set()
+    pairs = []
+    existing_fakes = set(vault.get_conversation(conversation_id).get_all_fakes()) if vault.get_conversation(conversation_id) else set()
 
     for entity in entities:
         entity_type = entity.get("type", "")
         original_text = entity.get("text", "")
 
-        if not original_text or original_text in seen_originals:
+        if not original_text:
             continue
 
+        # Get the routing decision
         action = route(entity_type)
 
         if action == "redact":
-            seen_originals.add(original_text)
+            # Secrets: replace with [[REDACTED]]
             pairs.append((original_text, REDACTED))
 
         elif action == "faker":
-            seen_originals.add(original_text)
+            # Identity PII: generate a fake surrogate
+            generator = _FAKER_GENERATORS.get(entity_type)
+            if generator is None:
+                # Unknown type with faker routing — use a generic name
+                generator = generate_fake_name
 
-            # Same real value in the same conversation -> same fake, so the
-            # LLM sees a consistent identity across messages and files.
-            existing = vault.lookup_by_real(conversation_id, original_text)
-            if existing is not None:
-                pairs.append((original_text, existing.fake_value))
-                continue
-
-            generator = _FAKER_GENERATORS.get(entity_type, generate_fake_name)
             fake_value = generate_unique_fake(existing_fakes, generator)
             existing_fakes.add(fake_value)
 
+            # Store in vault for later restoration
             vault.add_mapping(
                 conversation_id=conversation_id,
                 fake_value=fake_value,
                 real_value=original_text,
                 entity_type=entity_type,
             )
+
             pairs.append((original_text, fake_value))
 
-        # "keep" / unrouted: leave unchanged
+        elif action == "keep":
+            # Non-PII or explicitly kept — no masking
+            pass
+
+        else:
+            # Unknown routing — default to keeping (fail-safe for non-PII)
+            pass
 
     return pairs
 
 
-def apply_pairs(text: str, pairs: list[tuple[str, str]]) -> tuple[str, int]:
-    """Apply (original, replacement) pairs to text in a single pass.
-
-    Single pass (one regex alternation, longest original first) so that a
-    replacement can never be re-matched by a later pair, and a short
-    original never clobbers part of a longer one.
-
-    Returns: (new_text, number_of_replacements_made)
-    """
-    if not text or not pairs:
-        return text, 0
-    mapping = {orig: repl for orig, repl in pairs if orig}
-    if not mapping:
-        return text, 0
-    pattern = re.compile(
-        "|".join(re.escape(o) for o in sorted(mapping, key=len, reverse=True))
-    )
-    return pattern.subn(lambda m: mapping[m.group(0)], text)
-
-
 def mask_text(text: str, entities: list[dict], conversation_id: str = "default") -> tuple[str, list[tuple[str, str]]]:
-    """Mask text and return the masked string + pairs."""
+    """Mask text and return the masked string + pairs.
+
+    Convenience function that calls mask_entities and applies the pairs
+    to the text string.
+
+    Args:
+        text: the input text to mask.
+        entities: list of entity dicts with 'type' and 'text' keys.
+        conversation_id: the conversation this belongs to.
+
+    Returns:
+        (masked_text, pairs) where pairs is the list of (original, replacement).
+    """
     pairs = mask_entities(entities, conversation_id)
-    masked_text, _ = apply_pairs(text, pairs)
+
+    masked_text = text
+    # Sort by original length descending so longer matches are replaced first
+    sorted_pairs = sorted(pairs, key=lambda p: len(p[0]), reverse=True)
+    for original, replacement in sorted_pairs:
+        masked_text = masked_text.replace(original, replacement)
+
     return masked_text, pairs

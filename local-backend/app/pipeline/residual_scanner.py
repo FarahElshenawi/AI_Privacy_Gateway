@@ -155,11 +155,6 @@ class ResidualScanner:
 
         for m in pattern.finditer(text):
             candidate = m.group()
-            # Real secrets almost always mix letters and digits. Requiring both
-            # stops ordinary snake_case/CamelCase identifiers and long words
-            # from blocking every code or prose file (fail-closed false alarms).
-            if not (any(c.isdigit() for c in candidate) and any(c.isalpha() for c in candidate)):
-                continue
             entropy = self._shannon_entropy(candidate)
 
             # Threshold: 3.5 bits/char is high entropy

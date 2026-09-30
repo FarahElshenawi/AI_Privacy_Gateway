@@ -20,7 +20,7 @@ router = APIRouter()
 class MaskRequest(BaseModel):
     text: str
     conversation_id: str = "default"
-    schema: list[str] | None = None
+    entity_schema: list[str] | None = None
 
 
 class MaskResponse(BaseModel):
@@ -45,7 +45,7 @@ async def mask_pii(
         raise HTTPException(status_code=401, detail="Invalid or missing token")
 
     # Step 1: Detect
-    entities = detect(body.text, body.schema)
+    entities = detect(body.text, body.entity_schema)
 
     # Step 2: Mask (generates pairs + stores in vault)
     masked_text, pairs = mask_text(body.text, entities, body.conversation_id)

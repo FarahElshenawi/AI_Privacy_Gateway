@@ -8,7 +8,7 @@ print("Laya loaded!")
 text1 = """Can you review this config loader before I merge it?
 DB_USER=svc_deploy
 DB_PASSWORD=hunter2
-STRIPE_API_KEY= "sk_test_PLACEHOLDER"
+STRIPE_API_KEY= "sk_test_FAKE_PLACEHOLDER"
 ADMIN_EMAIL=ops@brightpath-labs.com"""
 
 # Test 2: Support ticket

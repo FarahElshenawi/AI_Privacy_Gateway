@@ -10,7 +10,7 @@ Wires all routers together:
 """
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.detect import router as detect_router
@@ -18,7 +18,6 @@ from app.api.mask import router as mask_router
 from app.api.demask import router as demask_router
 from app.api.process_file import router as file_router
 from app.security.auth import get_install_token
-from app.security.origin_check import check_origin
 
 app = FastAPI(
     title="PII Gateway Local Backend",
@@ -29,7 +28,7 @@ app = FastAPI(
 # CORS — only allow the extension (which runs on chat.openai.com)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://chatgpt.com", "https://chat.openai.com", "http://localhost:3000"],
+    allow_origins=["https://chat.openai.com", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -49,18 +48,13 @@ async def health():
 
 
 @app.get("/token")
-async def get_token(request: Request):
+async def get_token():
     """Get the install token for extension setup.
 
-    Localhost only, and never to a web page: browsers attach an Origin header
-    to cross-site requests, so a page on chatgpt.com (which CORS allows)
-    could otherwise read the token and defeat the auth. Only requests with
-    no Origin (curl/CLI) or a browser-extension Origin are served.
+    This endpoint is unauthenticated because the extension needs to
+    get the token before it can make authenticated requests.
+    In production, this would be restricted to localhost only.
     """
-    check_origin(request)
-    origin = request.headers.get("origin")
-    if origin and not origin.startswith(("chrome-extension://", "moz-extension://")):
-        raise HTTPException(status_code=403, detail="Token is only available to the extension")
     return {"token": get_install_token()}
 
 

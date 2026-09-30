@@ -51,38 +51,26 @@ class MultimodalPipeline:
         if file_type == "image":
             return {"success": False, "error": "Image files require OCR (not supported in v1)"}
 
-        # Steps 2-6 can hit corrupt/encrypted/odd files. Fail closed with a
-        # clear error instead of a bare 500, and never leave a half-written
-        # output file behind.
-        try:
-            # Step 2: Parse — extract text
-            parser = get_parser(file_type)
-            parsed_data = parser.parse(str(input_path))
-            parsed_data["metadata"] = {"path": str(input_path), "type": file_type}
+        # Step 2: Parse — extract text
+        parser = get_parser(file_type)
+        parsed_data = parser.parse(str(input_path))
+        parsed_data["metadata"] = {"path": str(input_path), "type": file_type}
 
-            # Step 3: Detect — run detection engine on extracted text
-            full_text = self._get_full_text(parsed_data, file_type)
-            entities = detect(full_text)
+        # Step 3: Detect — run detection engine on extracted text
+        full_text = self._get_full_text(parsed_data, file_type)
+        entities = detect(full_text)
 
-            # Step 4: Mask — generate (original, replacement) pairs
-            pairs = mask_entities(entities, conversation_id)
+        # Step 4: Mask — generate (original, replacement) pairs
+        pairs = mask_entities(entities, conversation_id)
 
-            # Step 5: Reconstruct — apply pairs to the original file
-            reconstructor = get_reconstructor(file_type)
-            reconstructor.reconstruct(parsed_data, pairs, str(output_path))
+        # Step 5: Reconstruct — apply pairs to the original file
+        reconstructor = get_reconstructor(file_type)
+        reconstructor.reconstruct(parsed_data, pairs, str(output_path))
 
-            # Step 6: Residual scan — re-check the masked file
-            masked_parsed = parser.parse(str(output_path))
-            masked_text = self._get_full_text(masked_parsed, file_type)
-            leaks = scan(masked_text)
-        except Exception as e:  # noqa: BLE001
-            if output_path.exists():
-                output_path.unlink(missing_ok=True)
-            return {
-                "success": False,
-                "input_type": file_type,
-                "error": f"Could not process {file_type} file: {type(e).__name__}: {e}",
-            }
+        # Step 6: Residual scan — re-check the masked file
+        masked_parsed = parser.parse(str(output_path))
+        masked_text = self._get_full_text(masked_parsed, file_type)
+        leaks = scan(masked_text)
 
         return {
             "success": len(leaks) == 0,

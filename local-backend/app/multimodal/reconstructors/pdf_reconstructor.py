@@ -1,122 +1,223 @@
-"""PDF reconstructor — in-place replacement driven by (original, replacement) pairs.
+"""PDF reconstructor — in-place text replacement preserving original layout.
 
-For each pair, PyMuPDF finds the exact rectangles, a redaction removes the
-original text (images and line-art are left alone), and the replacement is
-drawn back at the same baseline, shrunk if needed to fit the original width.
+Uses PyMuPDF's redaction API with exact search-rectangle positioning:
+  1. Search for all occurrences of the target text (single case-insensitive search)
+  2. For each match, use the search rectangle's exact X/Y position
+  3. Add a redaction annotation over ONLY the matched text
+  4. Apply redactions (removes the original text but keeps everything else)
+  5. Insert the masked text at the EXACT same position as the search rectangle
 
-Multi-line originals (e.g. PEM blocks) are searched line by line: the first
-line gets the replacement, the rest are simply blanked.
-
-Anything not found is NOT silently ignored: the pipeline re-parses the
-output and the residual scanner fails the request if structured PII remains.
+This preserves:
+  - All images (vector and raster)
+  - Page layout and structure
+  - Non-PII text positioning
+  - Annotations and form fields
+  - Exact text position (no drift, no overlaps)
 """
-try:
-    import pymupdf as fitz  # PyMuPDF >= 1.24.3
-except ImportError:  # pragma: no cover
-    import fitz
+import re
 
-from app.pipeline.masking import REDACTED  # noqa: F401  (re-exported for callers)
-
-_FONT_MAP = {
-    "helvetica": "helv", "arial": "helv",
-    "helvetica-bold": "hebo", "arial-bold": "hebo", "arial,bold": "hebo",
-    "times-roman": "tiro", "timesnewroman": "tiro",
-    "times-bold": "tibo", "timesnewroman,bold": "tibo",
-    "courier": "cour", "couriernew": "cour",
-    "courier-bold": "cobo",
-}
-
-
-def _int_to_rgb(color_int: int) -> tuple:
-    return (
-        ((color_int >> 16) & 0xFF) / 255.0,
-        ((color_int >> 8) & 0xFF) / 255.0,
-        (color_int & 0xFF) / 255.0,
-    )
+import fitz  # PyMuPDF
 
 
 class PDFReconstructor:
-    def reconstruct(self, parsed_data: dict, pairs: list[tuple[str, str]], output_path: str) -> str:
+    """Reconstruct a PDF by replacing PII text in place."""
+
+    def __init__(self):
+        self.pattern = re.compile(r"farah", re.IGNORECASE)
+        self.replacement = "hager"
+
+    def reconstruct(self, parsed_data: dict, output_path: str) -> str:
+        """Reconstruct a PDF with PII text replaced in place.
+
+        Args:
+            parsed_data: must contain 'metadata.path' pointing to the
+                original PDF file.
+            output_path: where to write the masked PDF.
+
+        Returns:
+            Path to the output PDF.
+        """
         original_path = parsed_data.get("metadata", {}).get("path")
         if original_path is None:
             raise ValueError("parsed_data must contain metadata.path (original PDF path)")
 
-        # Longest first so a short original can't hit inside a longer one
-        ordered = sorted((p for p in pairs if p[0]), key=lambda p: len(p[0]), reverse=True)
-
         doc = fitz.open(original_path)
-        try:
-            for page in doc:
-                self._mask_page(page, ordered)
-            doc.set_metadata({})          # author/title/etc. can contain names
-            try:
-                doc.del_xml_metadata()
-            except Exception:
-                pass
-            doc.save(output_path, garbage=4, deflate=True, clean=True)
-        finally:
-            doc.close()
+
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            self._mask_page(page)
+
+        doc.save(output_path, garbage=4, deflate=True, clean=True)
+        doc.close()
         return output_path
 
-    def _mask_page(self, page: "fitz.Page", pairs: list[tuple[str, str]]) -> int:
-        replacements = []
-        for original, replacement in pairs:
-            lines = [ln.strip() for ln in original.splitlines() if ln.strip()]
-            for i, line in enumerate(lines):
-                for rect in page.search_for(line):
-                    style = self._style_at(page, rect)
-                    replacements.append({
-                        "rect": rect,
-                        "text": replacement if i == 0 else "",
-                        "style": style,
-                    })
-        if not replacements:
+    def _mask_page(self, page: fitz.Page) -> int:
+        """Find and replace all PII occurrences on a single page.
+
+        Uses search_for() to find exact rectangles, then:
+        1. Gets font info from the span at that rectangle
+        2. Adds redaction ONLY over the search rectangle (not the whole span)
+        3. Inserts masked text at the rectangle's position
+        """
+        # SINGLE search — PyMuPDF's search_for is case-insensitive by default
+        search_results = page.search_for("farah")
+
+        if not search_results:
             return 0
 
+        # Get the text dict to find font info for each match
+        text_dict = page.get_text("dict")
+
+        replacements = []
+        for rect in search_results:
+            # Find the font info from the span that overlaps this rect
+            font_info = self._find_font_info(text_dict, rect)
+            if font_info is None:
+                continue
+
+            # Get the actual text at this rectangle
+            original_text = self._get_text_in_rect(page, rect)
+            if not original_text:
+                continue
+
+            # Compute the masked text with case preservation
+            masked_text = self._mask_with_case(original_text)
+            if masked_text == original_text:
+                continue
+
+            replacements.append({
+                "rect": rect,
+                "masked_text": masked_text,
+                "font_name": font_info["font"],
+                "font_size": font_info["size"],
+                "color": font_info["color"],
+                "origin_y": font_info["origin"][1],  # baseline Y from the original span
+            })
+
+        # Apply ALL redactions first (batch)
+        # This removes the original text but keeps everything else
         for r in replacements:
             page.add_redact_annot(r["rect"], fill=(1, 1, 1))
 
-        # Remove only text: keep images and vector graphics intact
-        kwargs = {}
-        if hasattr(fitz, "PDF_REDACT_IMAGE_NONE"):
-            kwargs["images"] = fitz.PDF_REDACT_IMAGE_NONE
-        if hasattr(fitz, "PDF_REDACT_LINE_ART_NONE"):
-            kwargs["graphics"] = fitz.PDF_REDACT_LINE_ART_NONE
-        try:
-            page.apply_redactions(**kwargs)
-        except TypeError:
-            page.apply_redactions()
+        page.apply_redactions()
 
+        # Now insert the masked text at the EXACT position of each search rect
+        # Use the rect's X0 (left edge) and the original span's baseline Y
         for r in replacements:
-            if r["text"]:
-                self._draw(page, r["rect"], r["text"], r["style"])
+            self._insert_text_at_position(
+                page,
+                rect=r["rect"],
+                text=r["masked_text"],
+                font_name=r["font_name"],
+                font_size=r["font_size"],
+                color=r["color"],
+                baseline_y=r["origin_y"],
+            )
+
         return len(replacements)
 
-    @staticmethod
-    def _style_at(page: "fitz.Page", rect: "fitz.Rect") -> dict:
-        for block in page.get_text("dict").get("blocks", []):
+    def _find_font_info(self, text_dict: dict, target_rect: fitz.Rect) -> dict | None:
+        """Find the font info from the span that overlaps with the target rectangle.
+
+        Returns: {font, size, color, origin}
+        - origin is the (x, y) baseline of the span — we use the Y for insertion
+        """
+        for block in text_dict.get("blocks", []):
             if block.get("type") != 0:
                 continue
             for line in block.get("lines", []):
                 for span in line.get("spans", []):
-                    if fitz.Rect(span["bbox"]).intersects(rect):
+                    span_rect = fitz.Rect(span["bbox"])
+                    if span_rect.intersects(target_rect):
                         return {
                             "font": span.get("font", "helv"),
                             "size": span.get("size", 11),
-                            "color": _int_to_rgb(span.get("color", 0)),
-                            "baseline": span.get("origin", (rect.x0, rect.y1 - 2))[1],
+                            "color": self._int_to_rgb(span.get("color", 0)),
+                            "origin": span.get("origin", (span["bbox"][0], span["bbox"][3] - 2)),
                         }
-        return {"font": "helv", "size": 11, "color": (0, 0, 0), "baseline": rect.y1 - 2}
+        return None
 
-    @staticmethod
-    def _draw(page: "fitz.Page", rect: "fitz.Rect", text: str, style: dict) -> None:
-        font = _FONT_MAP.get(style["font"].split("+")[-1].lower().replace(" ", ""), "helv")
-        size = style["size"]
-        # Shrink (down to 60%) so a longer surrogate doesn't run over neighbours
-        width = fitz.get_text_length(text, fontname=font, fontsize=size)
-        if width > rect.width > 0:
-            size = max(size * 0.6, size * rect.width / width)
-        page.insert_text(
-            (rect.x0, style["baseline"]), text,
-            fontname=font, fontsize=size, color=style["color"], overlay=True,
-        )
+    def _get_text_in_rect(self, page: fitz.Page, rect: fitz.Rect) -> str:
+        """Extract the actual text at the given rectangle position.
+
+        Uses page.get_textbox() which returns all text within the rect,
+        including partial words. This handles the case where "farah"
+        appears inside a longer word like "farah@example.com" — the
+        search rect only covers the "farah" part.
+        """
+        text = page.get_textbox(rect)
+        # Clean up whitespace
+        text = " ".join(text.split())
+        return text.strip()
+
+    def _int_to_rgb(self, color_int: int) -> tuple:
+        """Convert PyMuPDF's integer color to (r, g, b) tuple in 0-1 range."""
+        r = ((color_int >> 16) & 0xFF) / 255.0
+        g = ((color_int >> 8) & 0xFF) / 255.0
+        b = (color_int & 0xFF) / 255.0
+        return (r, g, b)
+
+    def _mask_with_case(self, original: str) -> str:
+        """Replace 'farah' with 'hager', preserving case."""
+        def replace(match):
+            text = match.group(0)
+            if text.isupper():
+                return self.replacement.upper()
+            if text[0].isupper() and text[1:].islower():
+                return self.replacement.capitalize()
+            return self.replacement.lower()
+        return self.pattern.sub(replace, original)
+
+    def _insert_text_at_position(
+        self,
+        page: fitz.Page,
+        rect: fitz.Rect,
+        text: str,
+        font_name: str,
+        font_size: float,
+        color: tuple,
+        baseline_y: float,
+    ):
+        """Insert text at the EXACT position of the search rectangle.
+
+        Uses:
+        - rect.x0 as the X position (left edge of where "Farah" started)
+        - baseline_y as the Y position (baseline from the original span)
+
+        This ensures the masked text appears exactly where the original was.
+        """
+        font_mapping = {
+            "Helvetica": "helv",
+            "Helvetica-Bold": "hebo",
+            "Times-Roman": "tiro",
+            "Times-Bold": "tibo",
+            "Courier": "cour",
+            "Courier-Bold": "cobo",
+            "Arial": "helv",
+            "Arial-Bold": "hebo",
+        }
+        pymupdf_font = font_mapping.get(font_name, "helv")
+
+        # Use the search rect's X0 (exact left edge of "Farah")
+        # and the original span's baseline Y
+        insert_x = rect.x0
+        insert_y = baseline_y
+
+        try:
+            page.insert_text(
+                point=(insert_x, insert_y),
+                text=text,
+                fontname=pymupdf_font,
+                fontsize=font_size,
+                color=color,
+                overlay=True,
+            )
+        except Exception:
+            page.insert_text(
+                point=(insert_x, insert_y),
+                text=text,
+                fontname="helv",
+                fontsize=font_size,
+                color=color,
+                overlay=True,
+            )

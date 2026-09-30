@@ -162,6 +162,5 @@ def get_vault() -> VaultStore:
     """Get the global vault instance."""
     global _vault_instance
     if _vault_instance is None:
-        from app.config import VAULT_EXPIRY_HOURS
-        _vault_instance = VaultStore(default_ttl_hours=VAULT_EXPIRY_HOURS)
+        _vault_instance = VaultStore()
     return _vault_instance
