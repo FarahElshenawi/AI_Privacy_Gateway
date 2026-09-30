@@ -1,0 +1,43 @@
+[project]
+name = "ai-privacy-gateway"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "FarahElshenawi", email = "farah.elshenawy2@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "accelerate>=1.15.0",
+    "dotenv>=0.9.9",
+    "faker>=40.40.0",
+    "fastapi>=0.142.1",
+    "gliner>=0.2.29",
+    "gliner2>=2.0.0",
+    "httpx>=0.28.1",
+    "laya>=0.3.20",
+    "onnxruntime>=1.30.0",
+    "openai>=3.19.2",
+    "openpyxl>=3.1",
+    "pdfplumber>=0.11",
+    "peft>=0.21.0",
+    "presidio-analyzer>=2.2.364",
+    "presidio-anonymizer>=2.2.364",
+    "pydantic>=2.13.5",
+    "pymupdf>=1.24",
+    "pytest>=9.1.1",
+    "python-docx>=1.1",
+    "python-multipart>=0.0.32",
+    "sentence-transformers>=6.1.0",
+    "spacy>=3.8.16",
+    "torch>=2.14.0",
+    "transformers>=5.16.1",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+ai-privacy-gateway = "ai_privacy_gateway:main"
+
+[build-system]
+requires = ["uv_build>=0.12.7,<0.13.0"]
+build-backend = "uv_build"

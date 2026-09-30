@@ -1,9 +1,69 @@
-"""Local Backend entrypoint. Wires /detect, /mask, /demask (app/api/) behind
-origin check + per-install token auth (app/security/).
+"""FastAPI application — PII Gateway local backend.
+
+Wires all routers together:
+  - /detect     — detect PII in text
+  - /mask       — mask PII in text (detect + mask + scan)
+  - /demask     — restore real values in LLM response
+  - /process_file — process a file upload (multimodal)
+  - /health     — health check
+  - /token      — get the install token (for extension setup)
 """
-from fastapi import FastAPI
+from __future__ import annotations
 
-app = FastAPI(title="AI Privacy Gateway — Local Backend")
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 
-# TODO(Role 2, Week 1): mount app.api.detect / mask / demask routers here
-# TODO(Role 2, Week 1): add origin-check + token-auth middleware (app/security/)
+from app.api.detect import router as detect_router
+from app.api.mask import router as mask_router
+from app.api.demask import router as demask_router
+from app.api.process_file import router as file_router
+from app.security.auth import get_install_token
+from app.security.origin_check import check_origin
+
+app = FastAPI(
+    title="PII Gateway Local Backend",
+    description="Local PII detection, masking, and restoration service.",
+    version="1.0.0",
+)
+
+# CORS — only allow the extension (which runs on chat.openai.com)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://chatgpt.com", "https://chat.openai.com", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+# Wire routers
+app.include_router(detect_router, prefix="/api", tags=["detection"])
+app.include_router(mask_router, prefix="/api", tags=["masking"])
+app.include_router(demask_router, prefix="/api", tags=["restoration"])
+app.include_router(file_router, prefix="/api", tags=["multimodal"])
+
+
+@app.get("/health")
+async def health():
+    """Health check — no auth required."""
+    return {"status": "ok", "service": "pii-gateway-backend", "version": "1.0.0"}
+
+
+@app.get("/token")
+async def get_token(request: Request):
+    """Get the install token for extension setup.
+
+    Localhost only, and never to a web page: browsers attach an Origin header
+    to cross-site requests, so a page on chatgpt.com (which CORS allows)
+    could otherwise read the token and defeat the auth. Only requests with
+    no Origin (curl/CLI) or a browser-extension Origin are served.
+    """
+    check_origin(request)
+    origin = request.headers.get("origin")
+    if origin and not origin.startswith(("chrome-extension://", "moz-extension://")):
+        raise HTTPException(status_code=403, detail="Token is only available to the extension")
+    return {"token": get_install_token()}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8765)
