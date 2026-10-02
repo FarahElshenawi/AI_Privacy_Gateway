@@ -1,13 +1,13 @@
-import { NavLink, useLocation } from 'react-router-dom'
-import { ShieldCheck, BarChart3, Settings, ScrollText } from 'lucide-react'
+import { NavLink, useLocation, Outlet } from 'react-router-dom'
+import { ShieldCheck, BarChart3, Settings, ScrollText, Home } from 'lucide-react'
 
-export default function Layout({ children }) {
+export default function Layout() {
   const location = useLocation()
 
   const navItems = [
-    { to: '/', label: 'Verification', icon: BarChart3 },
-    { to: '/policy', label: 'Policy Config', icon: Settings },
-    { to: '/audit', label: 'Audit Log', icon: ScrollText },
+    { to: '/app', label: 'Verification', icon: BarChart3 },
+    { to: '/app/policy', label: 'Policy Config', icon: Settings },
+    { to: '/app/audit', label: 'Audit Log', icon: ScrollText },
   ]
 
   return (
@@ -18,7 +18,7 @@ export default function Layout({ children }) {
             <ShieldCheck size={28} color="#4f8cff" />
           </div>
           <div>
-            <div className="logo-text">PII Gateway</div>
+            <div className="logo-text">Doppel</div>
             <div className="logo-subtext">Control Plane</div>
           </div>
         </div>
@@ -31,7 +31,8 @@ export default function Layout({ children }) {
               <NavLink
                 key={item.to}
                 to={item.to}
-                className={`nav-item ${isActive ? 'active' : ''}`}
+                className={isActive ? 'nav-item active' : 'nav-item'}
+                end={item.to === '/app'}
               >
                 <Icon size={18} />
                 <span>{item.label}</span>
@@ -41,6 +42,10 @@ export default function Layout({ children }) {
         </nav>
 
         <div className="sidebar-footer">
+          <NavLink to="/" className="nav-item">
+            <Home size={18} />
+            <span>Back to Landing</span>
+          </NavLink>
           <div className="status-pill">
             <span className="status-dot online"></span>
             <span>Cloud Backend Online</span>
@@ -50,7 +55,7 @@ export default function Layout({ children }) {
       </aside>
 
       <main className="main-content">
-        {children}
+        <Outlet />
       </main>
     </div>
   )
