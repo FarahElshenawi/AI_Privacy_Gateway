@@ -76,15 +76,20 @@ def mask_entities(entities: list[dict], conversation_id: str = "default") -> lis
 
         elif action == "faker":
             # Identity PII: generate a fake surrogate
+            # Check if this real value already has a mapping in this conversation
+            existing_entry = vault.lookup_by_real(conversation_id, original_text)
+            if existing_entry is not None:
+                # Reuse existing mapping
+                pairs.append((original_text, existing_entry.fake_value))
+                continue
+
             generator = _FAKER_GENERATORS.get(entity_type)
             if generator is None:
-                # Unknown type with faker routing — use a generic name
                 generator = generate_fake_name
 
             fake_value = generate_unique_fake(existing_fakes, generator)
             existing_fakes.add(fake_value)
 
-            # Store in vault for later restoration
             vault.add_mapping(
                 conversation_id=conversation_id,
                 fake_value=fake_value,
@@ -128,3 +133,17 @@ def mask_text(text: str, entities: list[dict], conversation_id: str = "default")
         masked_text = masked_text.replace(original, replacement)
 
     return masked_text, pairs
+
+
+def apply_pairs(text: str, pairs: list[tuple[str, str]]) -> tuple[str, int]:
+    """Apply replacement pairs to text. Returns (masked_text, replacement_count).
+    
+    Replaces longest originals first to prevent partial matches.
+    """
+    count = 0
+    sorted_pairs = sorted(pairs, key=lambda p: len(p[0]), reverse=True)
+    for original, replacement in sorted_pairs:
+        if original in text:
+            count += text.count(original)
+            text = text.replace(original, replacement)
+    return text, count

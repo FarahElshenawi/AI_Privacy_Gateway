@@ -35,3 +35,6 @@ eval/reports/*
 .DS_Store
 .vscode/
 .idea/
+cloud-backend/**/*.db
+cloud-backend/**/*.db
+*.db

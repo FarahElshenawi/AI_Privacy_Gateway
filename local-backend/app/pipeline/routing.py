@@ -40,9 +40,10 @@ ROUTING_TABLE = {
 }
 
 
-def route(entity_type: str) -> str | None:
+def route(entity_type: str) -> str:
     """Get the masking action for an entity type.
 
-    Returns: 'faker', 'redact', 'keep', or None (unrouted → falls through to SLM).
+    Returns: 'faker', 'redact', or 'keep'.
+    Unknown types default to 'redact' (fail-closed) per architecture doc §4.
     """
-    return ROUTING_TABLE.get(entity_type)
+    return ROUTING_TABLE.get(entity_type, "redact")

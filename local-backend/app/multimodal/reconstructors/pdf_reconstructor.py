@@ -26,7 +26,7 @@ class PDFReconstructor:
         self.pattern = re.compile(r"farah", re.IGNORECASE)
         self.replacement = "hager"
 
-    def reconstruct(self, parsed_data: dict, output_path: str) -> str:
+    def reconstruct(self, parsed_data: dict, pairs: list[tuple[str, str]], output_path: str) -> str:
         """Reconstruct a PDF with PII text replaced in place.
 
         Args:
@@ -45,13 +45,13 @@ class PDFReconstructor:
 
         for page_num in range(len(doc)):
             page = doc[page_num]
-            self._mask_page(page)
+            self._mask_page(page, pairs)
 
         doc.save(output_path, garbage=4, deflate=True, clean=True)
         doc.close()
         return output_path
 
-    def _mask_page(self, page: fitz.Page) -> int:
+    def _mask_page(self, page: fitz.Page, pairs: list[tuple[str, str]]) -> int:
         """Find and replace all PII occurrences on a single page.
 
         Uses search_for() to find exact rectangles, then:
