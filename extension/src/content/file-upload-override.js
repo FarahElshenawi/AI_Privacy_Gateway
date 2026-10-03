@@ -36,8 +36,19 @@
   }
 
   const originalFetch = window.fetch;
-  // Flag to prevent double-interception (fetch-override.js also intercepts)
-  let _intercepting = false;
+
+  // If the main fetch-override.js already hooked fetch, chain onto it.
+  // If not (rare), we still install our own wrapper.
+  // We don't double-guard here because fetch-override.js guards against re-install
+  // and always calls originalFetch through the chain.
+  // To avoid infinite recursion, we capture originalFetch BEFORE any hooking here.
+
+  const fileInterceptKey = "__PII_GATEWAY_FILE_HOOKED__";
+  if (window[fileInterceptKey]) {
+    console.log("[PII Gateway] File upload interceptor already installed — skipping");
+    return;
+  }
+  window[fileInterceptKey] = true;
 
   // We hook into XMLHttpRequest as well, since ChatGPT may use it for uploads
   const originalXHROpen = XMLHttpRequest.prototype.open;
@@ -49,12 +60,10 @@
     const url = typeof input === "string" ? input : input?.url || "";
 
     if (
-      !_intercepting &&
       FILE_UPLOAD_PATTERNS.some((p) => url.includes(p)) &&
       init &&
       init.body instanceof FormData
     ) {
-      _intercepting = true;
       try {
         const formData = init.body;
         const file = formData.get("file");
@@ -97,13 +106,11 @@
           JSON.stringify({ error: "PII Gateway: upload blocked (fail-closed)" }),
           { status: 503, headers: { "Content-Type": "application/json" } }
         );
-      } finally {
-        _intercepting = false;
       }
     }
 
     return originalFetchPatched.call(this, input, init);
   };
 
-  console.log("[PII Gateway] File upload interceptor loaded");
+  console.log("[PII Gateway] File upload interceptor installed (MAIN world)");
 })();

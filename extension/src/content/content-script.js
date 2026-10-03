@@ -1,54 +1,69 @@
 /**
- * Content script (isolated world) — the message bridge.
+ * Content script (isolated world) — the message bridge. v2.
  *
- * This runs in Chrome's isolated world. It can talk to:
- *   - The MAIN world (via window.postMessage)
- *   - The service worker (via chrome.runtime.sendMessage)
+ * FIX vs v1:
+ *   v1 had an infinite postMessage echo. The listener accepted ANY message
+ *   with the MSG_TAG — including its OWN responses. Each response was then
+ *   re-forwarded to the service worker as {type:undefined, payload:undefined},
+ *   which the SW answered with {success:false, error:"Unknown: undefined"},
+ *   which was then forwarded back to the page, which was then received again...
+ *   infinite loop. Symptoms: 50+ postMessage calls per second, CPU spikes,
+ *   and `chrome.runtime.sendMessage` returning undefined on real requests
+ *   because the SW was drowning in junk messages.
  *
- * It also injects the fetch-override.js into the MAIN world so it can
- * intercept page-level fetch() calls.
+ *   v2 filters: only forward REQUESTS (messages with a `type` field),
+ *   never RESPONSES (messages with a `response` field).
  */
 
 (function () {
   "use strict";
 
-  // --- Inject the MAIN-world fetch override ---
-  const script = document.createElement("script");
-  script.src = chrome.runtime.getURL("src/content/fetch-override.js");
-  script.onload = function () {
-    this.remove();
-  };
-  (document.head || document.documentElement).appendChild(script);
-
-  // Also inject the file-upload override
-  const fileScript = document.createElement("script");
-  fileScript.src = chrome.runtime.getURL("src/content/file-upload-override.js");
-  fileScript.onload = function () {
-    this.remove();
-  };
-  (document.head || document.documentElement).appendChild(fileScript);
-
-  // --- Message bridge: MAIN world ↔ service worker ---
-
-  // Unique tag so we don't mix up our messages with page's own postMessage traffic
   const MSG_TAG = "__PII_GATEWAY__";
+  let handled = 0;
 
   window.addEventListener("message", async function (event) {
-    // Only accept messages from the same window
     if (event.source !== window) return;
     const data = event.data;
     if (!data || data.tag !== MSG_TAG) return;
 
-    // Forward to service worker and wait for response
+    // CRITICAL: only forward REQUESTS (with a `type` field).
+    // Skip RESPONSES (with a `response` field) — those are coming back from
+    // us and must not be re-processed, or we get an infinite postMessage loop.
+    if (data.type === undefined) return;
+    if (data.response !== undefined) return;
+
+    handled++;
+    console.log(`[PII Gateway] bridge #${data.id} (${data.type}) — forwarding to SW`);
+
     try {
       const response = await chrome.runtime.sendMessage({
         type: data.type,
         payload: data.payload,
+        id: data.id,
       });
-      // Send response back to MAIN world
-      window.postMessage({ tag: MSG_TAG, id: data.id, response: response }, "*");
+
+      if (response === undefined) {
+        // chrome.runtime.sendMessage returns undefined when:
+        //   - No listener is registered (SW failed to load)
+        //   - Listener didn't call sendResponse
+        //   - SW was killed mid-call (MV3 service worker lifecycle)
+        console.error(`[PII Gateway] bridge #${data.id}: SW returned undefined — service worker may be dead`);
+        window.postMessage(
+          { tag: MSG_TAG, id: data.id, response: {
+            success: false,
+            error: "Service worker did not respond (returned undefined). Open chrome://extensions → click 'Inspect views: service worker' to check for errors.",
+          } },
+          "*"
+        );
+        return;
+      }
+
+      window.postMessage(
+        { tag: MSG_TAG, id: data.id, response: response },
+        "*"
+      );
     } catch (err) {
-      // Service worker unavailable — fail closed
+      console.error(`[PII Gateway] bridge #${data.id}: error`, err.message);
       window.postMessage(
         { tag: MSG_TAG, id: data.id, response: { success: false, error: err.message } },
         "*"
@@ -56,5 +71,5 @@
     }
   });
 
-  console.log("[PII Gateway] Content script bridge loaded");
+  console.log("[PII Gateway] Content script bridge v2 loaded (isolated world)");
 })();
