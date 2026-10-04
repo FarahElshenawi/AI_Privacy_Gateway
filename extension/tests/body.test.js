@@ -56,3 +56,50 @@ test("filename helpers", () => {
   assert.deepEqual(splitFilename("a.b.docx"), { stem: "a.b", ext: ".docx" });
   assert.deepEqual(splitFilename(".env"), { stem: ".env", ext: "" });
 });
+
+import {
+  parseGeminiBody, collectGeminiSlots, buildGeminiBody, geminiConversationId,
+  parseMultipart, buildMultipart, boundaryFromContentType,
+} from "../src/background/body.js";
+
+test("gemini f.req roundtrip: prompt and file names are slots, other fields preserved", () => {
+  const inner = [["hi I am Farah", 0, null, [[["/contrib/x"], "Farah_CV.pdf"]], null, null, 0], ["en"], ["c_123", "r_1", "rc_1"], null, 5.5];
+  const body = new URLSearchParams({ "f.req": JSON.stringify([null, JSON.stringify(inner)]), at: "TOKEN:123" }).toString() + "&";
+  const st = parseGeminiBody(new TextEncoder().encode(body));
+  assert.equal(geminiConversationId(st), "c_123");
+  const { text, names } = collectGeminiSlots(st);
+  assert.equal(text[0].get(), "hi I am Farah");
+  assert.equal(names[0].get(), "Farah_CV.pdf");
+  text[0].set("hi I am Hager"); names[0].set("Hager_CV.pdf");
+  const out = new URLSearchParams(new TextDecoder().decode(buildGeminiBody(st)));
+  assert.equal(out.get("at"), "TOKEN:123");
+  const back = JSON.parse(JSON.parse(out.get("f.req"))[1]);
+  assert.equal(back[0][0], "hi I am Hager");
+  assert.equal(back[0][3][0][1], "Hager_CV.pdf");
+  assert.deepEqual(back[1], ["en"]);
+  assert.equal(back[0][3][0][0][0], "/contrib/x");
+});
+
+test("gemini parse fails closed on unknown shapes", () => {
+  assert.throws(() => parseGeminiBody(new TextEncoder().encode("x=1")));
+  assert.throws(() => parseGeminiBody(new TextEncoder().encode("f.req=" + encodeURIComponent('{"a":1}'))));
+});
+
+test("multipart roundtrip is binary safe and lets us swap file bytes + filename", () => {
+  const bin = Uint8Array.from([0, 255, 13, 10, 45, 45, 1, 2, 3, 13, 10]); // includes CRLF and '--'
+  const b = "----WebKitFormBoundaryX";
+  const mk = (bytes) => buildMultipart([
+    { headers: [["Content-Disposition", 'form-data; name="meta"']], bytes: new TextEncoder().encode("hello"), name: "meta", filename: null },
+    { headers: [["Content-Disposition", 'form-data; name="file"; filename="Farah.pdf"'], ["Content-Type", "application/pdf"]], bytes, name: "file", filename: "Farah.pdf", contentType: "application/pdf" },
+  ], b);
+  assert.equal(boundaryFromContentType(`multipart/form-data; boundary=${b}`), b);
+  const parts = parseMultipart(mk(bin), b);
+  assert.equal(parts.length, 2);
+  assert.deepEqual(parts[1].bytes, bin);
+  assert.equal(parts[1].filename, "Farah.pdf");
+  parts[1].bytes = new Uint8Array([9, 9]); parts[1].filename = "Hager.pdf";
+  const again = parseMultipart(buildMultipart(parts, b), b);
+  assert.deepEqual(again[1].bytes, new Uint8Array([9, 9]));
+  assert.equal(again[1].filename, "Hager.pdf");
+  assert.equal(new TextDecoder().decode(again[0].bytes), "hello");
+});

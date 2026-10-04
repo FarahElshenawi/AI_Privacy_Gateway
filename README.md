@@ -283,7 +283,7 @@ OUTPUT (masked text/file sent to ChatGPT)
 - **Cannot catch all missed names.** There is no checksum for "this is a person's name." The semantic tier's recall gap is permanent — the residual scanner cannot backstop it.
 - **No OCR.** Scanned PDFs and images are rejected (not silently passed through).
 - **Cloud backend is a stub.** Policy distribution and audit are documented as future work.
-- **ChatGPT only.** v1 targets chatgpt.com. Multi-site support (Claude, Gemini) is future work.
+- **ChatGPT and Gemini.** Other sites (Claude, etc.) are future work. Gemini support is verified against a mock, not the live site.
 
 ## License
 

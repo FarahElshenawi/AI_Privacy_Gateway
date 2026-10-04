@@ -1,6 +1,6 @@
 /**
  * Doppel — AI Privacy Gateway
- * Service Worker v2.1 — chrome.debugger + CDP Fetch domain
+ * Service Worker v2.2 — chrome.debugger + CDP Fetch domain
  *
  * Intercepts ChatGPT requests at the network layer (below the page, its
  * service workers and workers) and rewrites them with PII masked by the
@@ -25,6 +25,8 @@ import {
   bytesToBase64, base64ToBytes, concatBytes,
   collectUserTextSlots, collectAttachmentNameSlots,
   countResidualOriginals, sniffExtension, splitFilename,
+  parseGeminiBody, collectGeminiSlots, buildGeminiBody, geminiConversationId,
+  parseMultipart, buildMultipart, boundaryFromContentType,
 } from "./body.js";
 
 const BACKEND_URL = "http://127.0.0.1:8765";
@@ -39,6 +41,10 @@ const FETCH_PATTERNS = [
   "*://chat.openai.com/backend-api/*",
   "*://*.oaiusercontent.com/*",
   "*://*.blob.core.windows.net/*",
+  // Gemini
+  "*://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate*",
+  "*://content-push.googleapis.com/*",
+  "*://push.clients6.google.com/*",
 ].map((urlPattern) => ({ urlPattern, requestStage: "Request" }));
 
 const SESSION_KEY_VAULT_IDS = "vaultIdByConv";
@@ -51,7 +57,12 @@ const reservedNames = new Map();
 // tabId → vault id used while the chat has no server-side conversation id yet
 const pendingVaultId = new Map();
 
-const isChatGPTUrl = (u) => !!u && (/^https:\/\/(chatgpt\.com|chat\.openai\.com)\//.test(u));
+const isChatGPTUrl = (u) => !!u && (/^https:\/\/(chatgpt\.com|chat\.openai\.com|gemini\.google\.com)\//.test(u));
+const GEMINI_UPLOAD_HOSTS = new Set(["content-push.googleapis.com", "push.clients6.google.com"]);
+const getHeader = (headers, name) => {
+  const k = Object.keys(headers || {}).find((h) => h.toLowerCase() === name);
+  return k ? headers[k] : undefined;
+};
 
 // ─────────────────────────────────────────────────────────
 // Backend access
@@ -252,6 +263,9 @@ function classify(request, urlObj) {
     return "file-put";
   }
   if (method === "POST" && /^\/backend-api\/files(\/upload_reservations)?$/.test(path)) return "file-reserve";
+  if (method === "POST" && urlObj.hostname === "gemini.google.com" &&
+      path.endsWith("BardFrontendService/StreamGenerate")) return "gemini-send";
+  if ((method === "POST" || method === "PUT") && GEMINI_UPLOAD_HOSTS.has(urlObj.hostname)) return "gemini-upload";
   return null;
 }
 
@@ -378,6 +392,85 @@ async function handleFilePut(source, params, body) {
   await logActivity("file", { detail: "File masked", entityCount: 0 });
 }
 
+
+// ── Gemini ────────────────────────────────────────────────
+
+async function handleGeminiSend(source, params, body) {
+  const { requestId } = params;
+  let state;
+  try {
+    state = parseGeminiBody(body);
+  } catch (e) {
+    return block(source, requestId, `Unrecognised Gemini request shape (${e.message})`);
+  }
+  const { text, names } = collectGeminiSlots(state);
+  const vaultId = await resolveVaultId(source.tabId, geminiConversationId(state));
+  let result;
+  try {
+    result = await maskStringSlots([...text, ...names], vaultId);
+  } catch (err) {
+    return block(source, requestId,
+      err.leakCount ? "Residual scanner found leaks" : `Masking failed: ${err.message}`,
+      err.leakTypes || [], err.leakCount || 0);
+  }
+  try {
+    await cont(source, requestId, { postData: bytesToBase64(buildGeminiBody(state)) });
+  } catch (e) {
+    console.error("[Doppel] continueRequest (gemini) failed:", e.message);
+    return block(source, requestId, "continueRequest failed");
+  }
+  trace({ kind: "gemini-send", outcome: "MASKED", detail: `${result.count} entities` });
+  await logActivity("mask", { entityTypes: result.types, entityCount: result.count });
+}
+
+async function handleGeminiUpload(source, params, body) {
+  const { requestId, request } = params;
+  const headers = request.headers || {};
+  const ct = getHeader(headers, "content-type") || "";
+  const cmd = getHeader(headers, "x-goog-upload-command");
+  const boundary = boundaryFromContentType(ct);
+
+  if (!body || body.length === 0) return cont(source, requestId);
+
+  // Supported: single multipart/form-data upload carrying the file bytes.
+  if (/^multipart\/form-data/i.test(ct) && boundary) {
+    let parts;
+    try { parts = parseMultipart(body, boundary); }
+    catch (e) { return block(source, requestId, `Gemini upload parse failed (${e.message})`); }
+    const filePart = parts.find((p) => p.filename !== null);
+    if (!filePart) return cont(source, requestId); // no file inside (metadata only)
+    const vaultId = await resolveVaultId(source.tabId, null);
+    const origName = filePart.filename || "upload";
+    let maskedBytes;
+    try {
+      maskedBytes = await maskFileViaBackend(filePart.bytes, origName,
+        filePart.contentType || "application/octet-stream", vaultId);
+      const { stem, ext } = splitFilename(origName);
+      await maskStringSlots([{ get: () => stem, set: (v) => { filePart.filename = v + ext; } }], vaultId);
+    } catch (err) {
+      return block(source, requestId, `File masking failed: ${err.message}`);
+    }
+    if (!maskedBytes || maskedBytes.length === 0) return block(source, requestId, "Empty masked file");
+    filePart.bytes = maskedBytes;
+    try {
+      await cont(source, requestId, { postData: bytesToBase64(buildMultipart(parts, boundary)) });
+    } catch (e) {
+      return block(source, requestId, "continueRequest failed");
+    }
+    trace({ kind: "gemini-upload", outcome: "MASKED", detail: `${filePart.bytes.length} bytes` });
+    await logActivity("file", { detail: "File masked", entityCount: 0 });
+    return;
+  }
+
+  // Resumable protocol "start" call: metadata only (no file bytes). Allow.
+  if (cmd && cmd.trim().toLowerCase() === "start") return cont(source, requestId);
+
+  // Anything else may carry file bytes in a form we can't safely rewrite. Fail closed,
+  // and record the (non-sensitive) protocol hints so support can see what Gemini sent.
+  trace({ kind: "gemini-upload", outcome: "UNSUPPORTED", detail: `content-type=${ct.split(";")[0]} x-goog-upload-command=${cmd || "-"}` });
+  return block(source, requestId, "Unsupported Gemini upload format");
+}
+
 // ─────────────────────────────────────────────────────────
 // CDP event router
 // ─────────────────────────────────────────────────────────
@@ -424,6 +517,11 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
       if (!body) return cont(source, requestId);
       return await handleSend(source, params, body);
     }
+    if (kind === "gemini-send") {
+      if (!body) return block(source, requestId, "Gemini send without body");
+      return await handleGeminiSend(source, params, body);
+    }
+    if (kind === "gemini-upload") return await handleGeminiUpload(source, params, body);
     if (kind === "file-reserve") {
       if (!body) return cont(source, requestId);
       return await handleReserve(source, params, body);
@@ -569,7 +667,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case "ATTACH_NOW": {
           const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
           if (!tab) return sendResponse({ success: false, error: "No active tab" });
-          if (!isChatGPTUrl(tab.url)) return sendResponse({ success: false, error: "Active tab is not chatgpt.com" });
+          if (!isChatGPTUrl(tab.url)) return sendResponse({ success: false, error: "Active tab is not ChatGPT or Gemini" });
           await attachDebuggerToTab(tab.id);
           sendResponse({ success: attachedTabs.has(tab.id), tabId: tab.id,
                          error: attachedTabs.has(tab.id) ? undefined : "Attach failed" });
@@ -634,4 +732,4 @@ chrome.runtime.onInstalled.addListener(async () => {
 // On every SW start (including restarts), re-adopt / re-attach to ChatGPT tabs.
 syncAllTabs().catch((e) => console.error("[Doppel] initial sync failed:", e.message));
 
-console.log("[Doppel] Service worker v2.1 loaded");
+console.log("[Doppel] Service worker v2.2 loaded");

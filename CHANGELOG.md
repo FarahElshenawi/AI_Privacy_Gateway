@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.2.0] — 2026-10-04
+
+### Added
+- **Gemini (gemini.google.com) support.**
+  - Prompts: `StreamGenerate` form posts are parsed (`f.req` → inner JSON), the prompt text and attached
+    file names are masked, and the body is rebuilt with every other field (`at`, flags, conversation ids) intact.
+  - File uploads: single `multipart/form-data` uploads to `content-push.googleapis.com` /
+    `push.clients6.google.com` have the file bytes masked via `/api/process_file`.
+  - **Fail-closed:** unrecognised request shapes and resumable-protocol uploads that carry raw file bytes
+    (`x-goog-upload-command: upload…`) are blocked, and the popup Diagnostics shows the content-type/command seen.
+- Popup **Diagnostics** panel: attach status and the last 25 intercepted requests with outcomes (no content).
+- ChatGPT: blob-storage upload host, `sk-proj-…` key detection, periodic re-attach (alarm) so tabs are never
+  silently unprotected after a service-worker sleep or extension reload.
+
+### Caveats
+- Gemini support is built from the publicly reverse-engineered request format and verified against a local
+  mock in Chromium, **not against the live site**. If Gemini changes its format, requests are blocked, not leaked.
+- Person names (e.g. in filenames) are still not detected until the semantic detector is implemented.
+
 ## [v2.1.0] — 2026-10-04
 
 Hardening release. Fixes privacy leaks and fail-open paths found in review of v2.0.0.
