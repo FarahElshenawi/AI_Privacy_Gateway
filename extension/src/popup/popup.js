@@ -25,6 +25,12 @@ const BADGE_COLORS = {
   ADDRESS: "name", address: "name",
 };
 
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
 // --- Check backend health ---
 async function checkHealth() {
   statusDot.className = "status-dot connecting";
@@ -84,12 +90,12 @@ function renderActivity(item) {
 
   const badges = (item.entityTypes || []).map(type => {
     const colorClass = BADGE_COLORS[type] || "name";
-    return `<span class="entity-badge ${colorClass}">${type}</span>`;
+    return `<span class="entity-badge ${colorClass}">${esc(type)}</span>`;
   }).join("");
 
   const detail = item.entityCount
-    ? `${item.entityCount} entities detected & masked`
-    : item.detail || "";
+    ? `${esc(item.entityCount)} entities detected & masked`
+    : esc(item.detail || "");
 
   return `
     <div class="activity-item">
@@ -99,7 +105,7 @@ function renderActivity(item) {
         <div class="activity-detail">${detail}</div>
         ${badges ? `<div class="activity-badges">${badges}</div>` : ""}
       </div>
-      <div class="activity-time">${item.time || ""}</div>
+      <div class="activity-time">${esc(item.time || "")}</div>
     </div>
   `;
 }
@@ -145,9 +151,9 @@ async function checkDebuggerStatus() {
           // Try to extract just the host
           let host = "unknown";
           try { host = new URL(t.url).hostname; } catch {}
-          return `tab ${t.tabId} (${host})`;
+          return `tab ${esc(t.tabId)} (${esc(host)})`;
         }).join(", ");
-        debuggerStatus.innerHTML = `<span style="color: var(--green);">● Attached to ${resp.count} tab(s):</span><br><span style="font-size: 10px; color: var(--muted);">${tabList}</span>`;
+        debuggerStatus.innerHTML = `<span style="color: var(--green);">● Attached to ${esc(resp.count)} tab(s):</span><br><span style="font-size: 10px; color: var(--muted);">${tabList}</span>`;
         attachBtn.textContent = "Detach from current tab";
         attachBtn.style.display = "block";
       }

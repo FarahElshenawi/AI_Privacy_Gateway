@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Request, Header
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request, Header
 from fastapi.responses import FileResponse
 
 from app.multimodal.pipeline import MultimodalPipeline
@@ -22,7 +22,7 @@ router = APIRouter()
 async def process_file(
     request: Request,
     file: UploadFile = File(...),
-    conversation_id: str = "default",
+    conversation_id: str = Form("default"),
     authorization: str | None = Header(None),
 ):
     """Process an uploaded file through the multimodal pipeline.

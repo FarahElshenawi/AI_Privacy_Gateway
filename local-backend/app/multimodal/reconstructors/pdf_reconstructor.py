@@ -14,8 +14,6 @@ This preserves:
   - Annotations and form fields
   - Exact text position (no drift, no overlaps)
 """
-import re
-
 import fitz  # PyMuPDF
 
 
@@ -23,8 +21,7 @@ class PDFReconstructor:
     """Reconstruct a PDF by replacing PII text in place."""
 
     def __init__(self):
-        self.pattern = re.compile(r"farah", re.IGNORECASE)
-        self.replacement = "hager"
+        pass
 
     def reconstruct(self, parsed_data: dict, pairs: list[tuple[str, str]], output_path: str) -> str:
         """Reconstruct a PDF with PII text replaced in place.
@@ -59,40 +56,31 @@ class PDFReconstructor:
         2. Adds redaction ONLY over the search rectangle (not the whole span)
         3. Inserts masked text at the rectangle's position
         """
-        # SINGLE search — PyMuPDF's search_for is case-insensitive by default
-        search_results = page.search_for("farah")
-
-        if not search_results:
-            return 0
-
-        # Get the text dict to find font info for each match
+        # Search for every (original, replacement) pair, longest originals
+        # first so a full name is matched before its parts. Rects already
+        # claimed by a longer match are skipped to avoid double replacement.
         text_dict = page.get_text("dict")
-
         replacements = []
-        for rect in search_results:
-            # Find the font info from the span that overlaps this rect
-            font_info = self._find_font_info(text_dict, rect)
-            if font_info is None:
-                continue
+        claimed: list[fitz.Rect] = []
 
-            # Get the actual text at this rectangle
-            original_text = self._get_text_in_rect(page, rect)
-            if not original_text:
+        for original, replacement in sorted(pairs, key=lambda p: len(p[0]), reverse=True):
+            if not original or not original.strip():
                 continue
-
-            # Compute the masked text with case preservation
-            masked_text = self._mask_with_case(original_text)
-            if masked_text == original_text:
-                continue
-
-            replacements.append({
-                "rect": rect,
-                "masked_text": masked_text,
-                "font_name": font_info["font"],
-                "font_size": font_info["size"],
-                "color": font_info["color"],
-                "origin_y": font_info["origin"][1],  # baseline Y from the original span
-            })
+            for rect in page.search_for(original):
+                if any(rect.intersects(c) for c in claimed):
+                    continue
+                font_info = self._find_font_info(text_dict, rect)
+                if font_info is None:
+                    continue
+                claimed.append(rect)
+                replacements.append({
+                    "rect": rect,
+                    "masked_text": replacement,
+                    "font_name": font_info["font"],
+                    "font_size": font_info["size"],
+                    "color": font_info["color"],
+                    "origin_y": font_info["origin"][1],
+                })
 
         # Apply ALL redactions first (batch)
         # This removes the original text but keeps everything else
@@ -137,36 +125,12 @@ class PDFReconstructor:
                         }
         return None
 
-    def _get_text_in_rect(self, page: fitz.Page, rect: fitz.Rect) -> str:
-        """Extract the actual text at the given rectangle position.
-
-        Uses page.get_textbox() which returns all text within the rect,
-        including partial words. This handles the case where "farah"
-        appears inside a longer word like "farah@example.com" — the
-        search rect only covers the "farah" part.
-        """
-        text = page.get_textbox(rect)
-        # Clean up whitespace
-        text = " ".join(text.split())
-        return text.strip()
-
     def _int_to_rgb(self, color_int: int) -> tuple:
         """Convert PyMuPDF's integer color to (r, g, b) tuple in 0-1 range."""
         r = ((color_int >> 16) & 0xFF) / 255.0
         g = ((color_int >> 8) & 0xFF) / 255.0
         b = (color_int & 0xFF) / 255.0
         return (r, g, b)
-
-    def _mask_with_case(self, original: str) -> str:
-        """Replace 'farah' with 'hager', preserving case."""
-        def replace(match):
-            text = match.group(0)
-            if text.isupper():
-                return self.replacement.upper()
-            if text[0].isupper() and text[1:].islower():
-                return self.replacement.capitalize()
-            return self.replacement.lower()
-        return self.pattern.sub(replace, original)
 
     def _insert_text_at_position(
         self,

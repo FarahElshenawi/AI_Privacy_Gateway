@@ -1,9 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "Doppel — AI Privacy Gateway",
-  "version": "2.0.0",
-  "description": "Masks sensitive PII before it reaches LLMs. Uses chrome.debugger + CDP for network-layer interception — no MAIN-world fetch hacks.",
-  "permissions": ["debugger", "storage", "activeTab", "tabs"],
+  "name": "Doppel \u2014 AI Privacy Gateway",
+  "version": "2.1.0",
+  "description": "Masks sensitive PII before it reaches LLMs. Uses chrome.debugger + CDP for network-layer interception \u2014 no MAIN-world fetch hacks.",
+  "permissions": [
+    "debugger",
+    "storage",
+    "activeTab",
+    "tabs"
+  ],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
@@ -12,11 +17,12 @@
     "http://127.0.0.1:8765/*"
   ],
   "background": {
-    "service_worker": "src/background/service-worker.js"
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "src/popup/popup.html",
-    "default_title": "Doppel — AI Privacy Gateway"
+    "default_title": "Doppel \u2014 AI Privacy Gateway"
   },
   "icons": {}
 }

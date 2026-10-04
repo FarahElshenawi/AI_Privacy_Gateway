@@ -30,13 +30,13 @@ const PLATFORM = [
   {
     tag: 'Data Plane', tagClass: 'data', title: 'Local Protection Layer',
     features: [
-      'Chrome extension (Manifest V3) with MAIN-world fetch interception',
+      'Chrome extension (Manifest V3) with chrome.debugger network-layer interception',
       'Tiered detection: deterministic + GLiNER2-PII via ONNX',
       'Sentence-boundary chunking for long documents',
       'Independent residual scanner (fail-closed last gate)',
       'Per-conversation bijective vault with TTL',
       'Multimodal: PDF, Word, Excel, Text — in-place reconstruction',
-      'Streaming SSE response demasking',
+      'Response demasking (backend endpoint; extension integration planned)',
       'Per-install token authentication',
     ],
   },

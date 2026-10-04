@@ -27,6 +27,7 @@ class MaskResponse(BaseModel):
     masked_text: str
     pairs: list[tuple[str, str]]
     entities_found: int
+    entity_types: list[str] = []
     leaks: list[dict]
     safe_to_send: bool
 
@@ -57,6 +58,7 @@ async def mask_pii(
         masked_text=masked_text,
         pairs=pairs,
         entities_found=len(entities),
+        entity_types=sorted({e.get("type", "") for e in entities if e.get("type")}),
         leaks=leaks,
         safe_to_send=len(leaks) == 0,
     )

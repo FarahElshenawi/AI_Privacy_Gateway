@@ -1,12 +1,10 @@
 {
   "name": "ai-privacy-gateway-extension",
-  "version": "0.1.0",
+  "version": "2.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "test": "echo \"TODO: wire test runner\" && exit 0",
-    "lint": "echo \"TODO: wire linter\" && exit 0"
-  },
-  "dependencies": {
-    "faker": "^6.6.6"
+    "test": "node --test",
+    "lint": "node --check src/background/service-worker.js && node --check src/background/body.js && node --check src/popup/popup.js"
   }
 }

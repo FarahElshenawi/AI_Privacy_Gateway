@@ -29,13 +29,8 @@ User types prompt / uploads file in ChatGPT
   ChatGPT responds (with fake values)
          │
          ▼
-  DEMASK (vault restores real values — fake → real)
-    ├── Find fake values in the LLM response
-    ├── Replace each fake with the original from the vault
-    └── Handle streaming (SSE): buffer chunks, demask, restore in real-time
-         │
-         ▼
-  User sees real values in the ChatGPT UI
+  DEMASK (backend `/api/demask` exists; NOT yet wired into the extension)
+    └── Today the user sees surrogate values in ChatGPT's replies
          │
          ▼
   User sees real values in the ChatGPT UI
@@ -124,7 +119,7 @@ The extension will:
 1. Intercept the prompt before it reaches OpenAI
 2. Mask it: "My name is James Walsh, my card is [[REDACTED]], email me at j.walsh@fakermail.com"
 3. Send the masked version to ChatGPT
-4. Restore real values in the response: "Farah Ahmed", "4242...", "farah@example.com"
+4. (Planned — not yet wired into the extension) Restore real values in the response: "Farah Ahmed", "4242...", "farah@example.com"
 
 ## Architecture
 
@@ -133,11 +128,8 @@ The extension will:
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  BROWSER (untrusted page context)                                    │
-│  ┌───────────────────┐    ┌───────────────────┐                     │
-│  │  fetch-override   │◄──►│  content-script   │ (message bridge)    │
-│  │  (MAIN world)     │    │  (isolated world) │                     │
-│  └───────────────────┘    └────────┬──────────┘                     │
-│                                    │ chrome.runtime.sendMessage      │
+│  ChatGPT tab ── requests paused at network layer (CDP Fetch)         │
+│                           │ chrome.debugger                          │
 │                           ┌────────▼──────────┐                     │
 │                           │  service-worker   │ (holds token)        │
 │                           └────────┬──────────┘                     │
@@ -237,7 +229,6 @@ uv run pytest tests/ -v
 ```
 AI_Privacy_Gateway/
 ├── extension/                 # Chrome extension (Manifest V3)
-│   ├── src/content/           # fetch-override, file-upload-override, message bridge
 │   ├── src/background/        # service worker (token, API calls)
 │   └── src/popup/             # popup UI
 ├── local-backend/             # FastAPI local backend

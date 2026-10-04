@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.1.0] — 2026-10-04
+
+Hardening release. Fixes privacy leaks and fail-open paths found in review of v2.0.0.
+
+### Security / privacy
+- **Entity types no longer leak real values.** The activity log was built from `pairs[0]`
+  (the *original* values). Types now come from the new `entity_types` field on `/api/mask`.
+- **No user content in logs.** Removed console logging of message text, bodies, filenames.
+- **Popup renders activity with escaping** (previously raw `innerHTML`).
+- **Filenames are masked** in upload reservations and message attachment metadata.
+
+### Fail-closed
+- Any body-retrieval failure, backend error/timeout, residual leak, or unexpected exception on a
+  send / file request now **blocks** the request (v2.0.0 passed some of these through).
+- Rewritten bodies are **verified**: if any original value from `pairs` is still present, block.
+- Each user message part is masked and written back **by assignment** (no `String.replace`,
+  so `$&` etc. in masked text are literal and multi-part messages are handled).
+- Backend calls have timeouts.
+
+### Fixed
+- Body retrieval uses `postDataEntries` / `networkId` + `Network.getRequestPostData`
+  (honouring `base64Encoded`) instead of URL-keyed lookups and base64 guessing.
+- Send endpoint match is exact; `/f/conversation/prepare` and similar are not touched.
+- Filename for file uploads comes from the (masked) upload reservation, with magic-byte sniffing as fallback.
+- Protection toggle is honoured (detaches/attaches immediately); SW restarts re-adopt debugger sessions.
+- Stable per-conversation vault id so the same real value gets the same surrogate within a chat.
+- `/api/process_file` reads `conversation_id` from the multipart form (it was a query param).
+- PDF reconstructor now applies the supplied `pairs` (it was hard-coded to replace "farah" → "hager").
+- Extension version/popup footer aligned; stats are no longer reset on extension update.
+
+### Removed
+- Dead content scripts (`src/content/*`), empty `src/lib/masking.js`, unused `faker` dependency.
+
+### Corrections to earlier entries
+- v2.0.0 claimed the backend CORS allow-list gained `chatgpt.com`. It did not (and should not: the
+  extension reaches the backend via `host_permissions`, and `/token` is unauthenticated).
+- Response demasking is **not implemented in the extension**; users see surrogate values in ChatGPT's
+  replies. The `/api/demask` endpoint exists in the backend only.
+
 ## [v2.0.0] — 2026-10-03
 
 ### Changed — Architecture overhaul: MAIN-world fetch override → chrome.debugger + CDP
@@ -82,8 +121,6 @@ After six iterations of patching, four architectural faults remained unfixable:
   message with the tag — including its OWN responses. Caused 50+ postMessage
   calls per second. v2 filters: only forward REQUESTS (with a `type` field),
   never RESPONSES (with a `response` field).
-- **CORS for chatgpt.com.** Backend CORS only allowed `chat.openai.com`;
-  added `chatgpt.com` to allowed origins.
 
 ## [v1.0.0] — Initial release
 
