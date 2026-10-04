@@ -1,0 +1,13 @@
+metric,strict,partial
+precision,0.7524752475247525,0.8052805280528053
+recall,0.8201438848920863,0.8776978417266187
+f1,0.7848537005163511,0.8399311531841653
+tp,228,244
+fp,75,59
+fn,50,34
+n_examples,80,80
+median_latency_ms,29.58834171295166,29.58834171295166
+p95_latency_ms,155.0600528717041,155.0600528717041
+device,cuda,cuda
+model,urchade/gliner_multi_pii-v1,urchade/gliner_multi_pii-v1
+confidence_threshold,0.5,0.5

@@ -1,0 +1,13 @@
+metric,strict,partial
+precision,0.8181818181818182,0.9212121212121213
+recall,0.4856115107913669,0.5467625899280576
+f1,0.6094808126410836,0.6862302483069979
+tp,135,152
+fp,30,13
+fn,143,126
+n_examples,80,80
+median_latency_ms,48.610806465148926,48.610806465148926
+p95_latency_ms,76.22933387756348,76.22933387756348
+device,cuda,cuda
+model,tomaarsen/span-marker-bert-base-fewnerd-fine-super,tomaarsen/span-marker-bert-base-fewnerd-fine-super
+confidence_threshold,0.5,0.5
