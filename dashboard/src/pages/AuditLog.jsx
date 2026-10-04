@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
-import axios from 'axios'
+import { fetchAuditEvents, deleteAuditEvent } from '../api/client.js'
 import { Trash2 } from 'lucide-react'
 
-const API = axios.create({ baseURL: '/api' })
 
 const EVENT_TYPES = {
   mask: { label: 'Mask', color: '#4f8cff' },
@@ -23,10 +22,8 @@ export default function AuditLog() {
 
   async function loadEvents() {
     try {
-      let url = `/audit?hours=${hours}&limit=200`
-      if (filterType) url += `&event_type=${filterType}`
-      const res = await API.get(url)
-      setEvents(res.data)
+      const data = await fetchAuditEvents({ hours, eventType: filterType, limit: 200 })
+      setEvents(data)
     } catch (err) {
       console.error('Failed to load audit log:', err)
     } finally {
@@ -37,7 +34,7 @@ export default function AuditLog() {
   async function deleteEvent(id) {
     if (!confirm('Delete this audit event? This cannot be undone.')) return
     try {
-      await API.delete(`/audit/${id}`)
+      await deleteAuditEvent(id)
       loadEvents()
     } catch (err) {
       alert('Failed to delete: ' + err.message)

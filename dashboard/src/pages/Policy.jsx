@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
-import axios from 'axios'
+import { fetchPolicy, updatePolicy } from '../api/client.js'
 import { Save, RotateCcw } from 'lucide-react'
 
-const API = axios.create({ baseURL: '/api' })
 
 const ACTIONS = [
   { value: 'faker', label: 'Faker (substitute)', color: 'faker', desc: 'Replace with realistic fake value' },
@@ -22,10 +21,10 @@ export default function Policy() {
 
   async function loadPolicies() {
     try {
-      const res = await API.get('/policies')
-      setPolicies(res.data)
+      const data = await fetchPolicy()
+      setPolicies(data)
       const editState = {}
-      res.data.forEach(p => { editState[p.id] = p.action })
+      data.forEach(p => { editState[p.id] = p.action })
       setEditing(editState)
     } catch (err) {
       console.error('Failed to load policies:', err)
@@ -37,7 +36,7 @@ export default function Policy() {
   async function savePolicy(id) {
     setSaving(id)
     try {
-      await API.put(`/policies/${id}`, { action: editing[id] })
+      await updatePolicy(id, editing[id])
       await loadPolicies()
     } catch (err) {
       alert('Failed to update policy: ' + (err.response?.data?.detail || err.message))
