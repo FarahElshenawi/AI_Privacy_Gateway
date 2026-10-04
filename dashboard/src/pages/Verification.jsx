@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react'
-import axios from 'axios'
+import { fetchAuditStats } from '../api/client.js'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, AreaChart, Area, LineChart, Line,
 } from 'recharts'
 import { Activity, ShieldAlert, Zap, Eye } from 'lucide-react'
 
-const API = axios.create({ baseURL: '/api' })
 const COLORS = ['#4f8cff', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6', '#1abc9c', '#34495e', '#e67e22']
 
 export default function Verification() {
@@ -22,8 +21,8 @@ export default function Verification() {
 
   async function loadStats() {
     try {
-      const res = await API.get(`/audit/stats?hours=${hours}`)
-      setStats(res.data)
+      const data = await fetchAuditStats(hours)
+      setStats(data)
     } catch (err) {
       console.error('Failed to load stats:', err)
     } finally {

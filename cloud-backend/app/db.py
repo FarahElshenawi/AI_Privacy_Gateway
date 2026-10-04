@@ -96,7 +96,17 @@ def get_session(engine):
 def seed_defaults(engine):
     """Seed the database with default policies."""
     session = get_session(engine)
-    
+
+    # Ensure the default organization exists (policies reference org_id=1)
+    import secrets
+    if not session.query(Organization).filter(Organization.id == 1).first():
+        session.add(Organization(
+            id=1,
+            name="Default Organization",
+            api_key=secrets.token_hex(32),
+        ))
+        session.commit()
+
     # Check if defaults already exist
     if session.query(Policy).filter(Policy.is_default == True).first():
         session.close()
