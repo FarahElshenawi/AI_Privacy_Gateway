@@ -75,6 +75,9 @@ class MultimodalPipeline:
             reconstructor = get_reconstructor(file_type)
             reconstructor.reconstruct(parsed_data, pairs, str(output_path))
         except Exception as e:
+            # Fail closed: remove any half-written output file
+            if output_path.exists():
+                output_path.unlink()
             return {
                 "success": False,
                 "error": f"Reconstruction failed: {e}",

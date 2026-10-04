@@ -44,6 +44,12 @@ class PDFReconstructor:
             page = doc[page_num]
             self._mask_page(page, pairs)
 
+        # Clear the author metadata — it is real-identity data, same class
+        # of leak as PII in the page text (matches word_reconstructor).
+        metadata = dict(doc.metadata or {})
+        metadata["author"] = ""
+        doc.set_metadata(metadata)
+
         doc.save(output_path, garbage=4, deflate=True, clean=True)
         doc.close()
         return output_path

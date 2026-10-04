@@ -5,6 +5,8 @@ Preserves formulas, formatting, charts, merged cells, conditional formatting.
 """
 from openpyxl import load_workbook
 
+from app.pipeline.masking import apply_pairs
+
 
 class ExcelReconstructor:
     def reconstruct(self, parsed_data: dict, pairs: list[tuple[str, str]], output_path: str) -> str:
@@ -23,11 +25,19 @@ class ExcelReconstructor:
                         continue
                     if not isinstance(cell.value, str):
                         continue
-                    if cell.value.startswith("="):
-                        continue  # Don't touch formulas
-                    for original, replacement in pairs:
-                        if original in cell.value:
-                            cell.value = cell.value.replace(original, replacement)
+                    # Formulas aren't skipped wholesale — a formula whose
+                    # entire body is a quoted PII literal (e.g.
+                    # ="john.doe@example.com") still leaks that PII when
+                    # the sheet is opened, same as a plain string cell
+                    # would. apply_pairs only replaces an exact substring
+                    # match, so a real formula like "=A2*2" (no PII text
+                    # inside it) is returned unchanged — nothing to skip
+                    # for. This also means a cell reference or function
+                    # name could in principle be altered if it happened
+                    # to exactly match a detected PII string, which is a
+                    # low-probability edge case accepted here in favor
+                    # of not leaving real PII in quoted formula literals.
+                    cell.value, _ = apply_pairs(cell.value, pairs)
 
         wb.save(output_path)
         wb.close()
