@@ -1,11 +1,13 @@
 """PDF reconstructor — in-place text replacement preserving original layout.
 
 Uses PyMuPDF's redaction API with exact search-rectangle positioning:
-  1. Search for all occurrences of the target text (single case-insensitive search)
+  1. Search for all occurrences of each (original, replacement) pair's
+     original text (case-insensitive)
   2. For each match, use the search rectangle's exact X/Y position
   3. Add a redaction annotation over ONLY the matched text
   4. Apply redactions (removes the original text but keeps everything else)
-  5. Insert the masked text at the EXACT same position as the search rectangle
+  5. Insert the replacement text at the EXACT same position as the
+     search rectangle
 
 This preserves:
   - All images (vector and raster)
@@ -14,24 +16,29 @@ This preserves:
   - Annotations and form fields
   - Exact text position (no drift, no overlaps)
 """
-import re
-
 import fitz  # PyMuPDF
 
 
 class PDFReconstructor:
     """Reconstruct a PDF by replacing PII text in place."""
 
-    def __init__(self):
-        self.pattern = re.compile(r"farah", re.IGNORECASE)
-        self.replacement = "hager"
-
-    def reconstruct(self, parsed_data: dict, output_path: str) -> str:
+    def reconstruct(self, parsed_data: dict, pairs: list[tuple[str, str]], output_path: str) -> str:
         """Reconstruct a PDF with PII text replaced in place.
 
         Args:
             parsed_data: must contain 'metadata.path' pointing to the
                 original PDF file.
+            pairs: (original, replacement) pairs from masking.mask_entities
+                — the actual detected PII and what to substitute it with.
+                NOTE: an earlier version of this class took no `pairs` at
+                all and instead searched for the hardcoded literal string
+                "farah" and replaced it with "hager" everywhere — a
+                leftover from local testing. That meant NO real PII in a
+                PDF was ever actually masked, and `MultimodalPipeline.
+                process()` (which calls this with
+                `reconstructor.reconstruct(parsed_data, pairs, output_path)`)
+                would raise TypeError on every PDF, since the old
+                signature didn't accept the `pairs` argument at all.
             output_path: where to write the masked PDF.
 
         Returns:
@@ -43,24 +50,40 @@ class PDFReconstructor:
 
         doc = fitz.open(original_path)
 
+        # Longest-original-first, same reasoning as apply_pairs() in
+        # masking.py: if "a@x.com" were searched/redacted before
+        # "a@x.com.au", it would also match (and corrupt) the start of
+        # the longer value.
+        sorted_pairs = sorted(pairs, key=lambda p: len(p[0]), reverse=True)
+
         for page_num in range(len(doc)):
             page = doc[page_num]
-            self._mask_page(page)
+            for original, replacement in sorted_pairs:
+                if original:
+                    self._mask_occurrences(page, original, replacement)
+
+        # The author is real-identity metadata, same class of leak as PII
+        # in the page text — clear it rather than leaving it attached to
+        # a "masked" file (matches word_reconstructor's handling).
+        metadata = dict(doc.metadata or {})
+        metadata["author"] = ""
+        doc.set_metadata(metadata)
 
         doc.save(output_path, garbage=4, deflate=True, clean=True)
         doc.close()
         return output_path
 
-    def _mask_page(self, page: fitz.Page) -> int:
-        """Find and replace all PII occurrences on a single page.
+    def _mask_occurrences(self, page: fitz.Page, original: str, replacement: str) -> int:
+        """Find and replace all occurrences of one (original, replacement)
+        pair on a single page.
 
         Uses search_for() to find exact rectangles, then:
         1. Gets font info from the span at that rectangle
         2. Adds redaction ONLY over the search rectangle (not the whole span)
-        3. Inserts masked text at the rectangle's position
+        3. Inserts the replacement text at the rectangle's position
         """
-        # SINGLE search — PyMuPDF's search_for is case-insensitive by default
-        search_results = page.search_for("farah")
+        # search_for() is case-insensitive by default
+        search_results = page.search_for(original)
 
         if not search_results:
             return 0
@@ -75,19 +98,9 @@ class PDFReconstructor:
             if font_info is None:
                 continue
 
-            # Get the actual text at this rectangle
-            original_text = self._get_text_in_rect(page, rect)
-            if not original_text:
-                continue
-
-            # Compute the masked text with case preservation
-            masked_text = self._mask_with_case(original_text)
-            if masked_text == original_text:
-                continue
-
             replacements.append({
                 "rect": rect,
-                "masked_text": masked_text,
+                "masked_text": replacement,
                 "font_name": font_info["font"],
                 "font_size": font_info["size"],
                 "color": font_info["color"],
@@ -101,8 +114,9 @@ class PDFReconstructor:
 
         page.apply_redactions()
 
-        # Now insert the masked text at the EXACT position of each search rect
-        # Use the rect's X0 (left edge) and the original span's baseline Y
+        # Now insert the replacement text at the EXACT position of each
+        # search rect. Use the rect's X0 (left edge) and the original
+        # span's baseline Y.
         for r in replacements:
             self._insert_text_at_position(
                 page,
@@ -137,36 +151,12 @@ class PDFReconstructor:
                         }
         return None
 
-    def _get_text_in_rect(self, page: fitz.Page, rect: fitz.Rect) -> str:
-        """Extract the actual text at the given rectangle position.
-
-        Uses page.get_textbox() which returns all text within the rect,
-        including partial words. This handles the case where "farah"
-        appears inside a longer word like "farah@example.com" — the
-        search rect only covers the "farah" part.
-        """
-        text = page.get_textbox(rect)
-        # Clean up whitespace
-        text = " ".join(text.split())
-        return text.strip()
-
     def _int_to_rgb(self, color_int: int) -> tuple:
         """Convert PyMuPDF's integer color to (r, g, b) tuple in 0-1 range."""
         r = ((color_int >> 16) & 0xFF) / 255.0
         g = ((color_int >> 8) & 0xFF) / 255.0
         b = (color_int & 0xFF) / 255.0
         return (r, g, b)
-
-    def _mask_with_case(self, original: str) -> str:
-        """Replace 'farah' with 'hager', preserving case."""
-        def replace(match):
-            text = match.group(0)
-            if text.isupper():
-                return self.replacement.upper()
-            if text[0].isupper() and text[1:].islower():
-                return self.replacement.capitalize()
-            return self.replacement.lower()
-        return self.pattern.sub(replace, original)
 
     def _insert_text_at_position(
         self,

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Privacy Gateway",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Masks sensitive data before it reaches public LLM web UIs.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
@@ -21,13 +21,27 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/content/fetch-override.js", "src/content/file-upload-override.js"],
+      "resources": [
+        "src/lib/message-text.js",
+        "src/lib/sse-demask.js",
+        "src/content/fetch-override.js",
+        "src/content/file-upload-override.js"
+      ],
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"]
     }
   ],
   "action": {
     "default_popup": "src/popup/popup.html",
-    "default_title": "AI Privacy Gateway"
+    "default_title": "AI Privacy Gateway",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   },
-  "icons": {}
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
 }

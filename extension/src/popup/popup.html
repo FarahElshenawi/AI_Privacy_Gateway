@@ -7,7 +7,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      width: 320px;
+      width: 340px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: #fafafa;
       color: #1a1a1a;
@@ -41,8 +41,9 @@
       padding: 12px 0; border-bottom: 1px solid #eee;
     }
     .toggle-label { font-size: 14px; font-weight: 600; }
+    .toggle-hint { font-size: 11px; color: #999; margin-top: 2px; }
     .toggle {
-      position: relative; width: 44px; height: 24px;
+      position: relative; width: 44px; height: 24px; flex: 0 0 auto;
       background: #ccc; border-radius: 12px; cursor: pointer;
       transition: background 0.3s;
     }
@@ -53,13 +54,34 @@
       transition: transform 0.3s;
     }
     .toggle.active::after { transform: translateX(20px); }
-    .stats { margin-top: 12px; }
+    .escape-warning {
+      display: none;
+      background: #fdecea; color: #b3261e; border-radius: 6px;
+      padding: 8px 10px; font-size: 12px; margin: 8px 0; line-height: 1.4;
+    }
+    .escape-warning.visible { display: block; }
+    .stats { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .stat-box {
       background: #f0f0f0; border-radius: 8px; padding: 10px 12px;
-      margin-bottom: 8px; display: flex; justify-content: space-between;
     }
-    .stat-label { font-size: 12px; color: #666; }
-    .stat-value { font-size: 14px; font-weight: 700; color: #1a1a2e; }
+    .stat-label { font-size: 11px; color: #666; display: block; }
+    .stat-value { font-size: 16px; font-weight: 700; color: #1a1a2e; }
+    .stat-box.danger .stat-value { color: #b3261e; }
+    .section-title {
+      font-size: 12px; font-weight: 700; color: #666; text-transform: uppercase;
+      letter-spacing: .04em; margin: 16px 0 6px;
+    }
+    #auditLog {
+      max-height: 150px; overflow-y: auto; font-size: 11px;
+      background: #f0f0f0; border-radius: 8px; padding: 8px 10px;
+    }
+    .audit-entry { padding: 4px 0; border-bottom: 1px solid #e3e3e3; }
+    .audit-entry:last-child { border-bottom: none; }
+    .audit-event { font-weight: 700; }
+    .audit-event.block { color: #b3261e; }
+    .audit-event.bypass { color: #c17a00; }
+    .audit-time { color: #999; }
+    .audit-empty { color: #999; font-style: italic; padding: 4px 0; }
     .footer {
       padding: 12px 16px; border-top: 1px solid #eee;
       display: flex; justify-content: space-between; align-items: center;
@@ -71,6 +93,8 @@
     .btn:hover { background: #333; }
     .btn.danger { background: #e74c3c; }
     .btn.danger:hover { background: #c0392b; }
+    .btn.secondary { background: #eee; color: #333; }
+    .btn.secondary:hover { background: #ddd; }
     .hint { font-size: 10px; color: #999; margin-top: 4px; }
   </style>
 </head>
@@ -82,8 +106,16 @@
 
   <div class="content">
     <div class="toggle-row">
-      <span class="toggle-label">Protection Active</span>
+      <div>
+        <div class="toggle-label">Protection Active</div>
+        <div class="toggle-hint">Off = escape hatch (sends unmasked, logged below)</div>
+      </div>
       <div class="toggle active" id="toggle"></div>
+    </div>
+
+    <div class="escape-warning" id="escapeWarning">
+      ⚠️ Protection is OFF. Messages and files are being sent to ChatGPT <b>unmasked</b>.
+      Every bypassed request is recorded in the audit log.
     </div>
 
     <div class="status-row">
@@ -104,16 +136,26 @@
         <span class="stat-label">Files masked</span>
         <span class="stat-value" id="filesMasked">0</span>
       </div>
-      <div class="stat-box">
+      <div class="stat-box danger">
         <span class="stat-label">Fail-closed blocks</span>
         <span class="stat-value" id="blocks">0</span>
       </div>
+      <div class="stat-box danger" style="grid-column: 1 / -1;">
+        <span class="stat-label">Escape-hatch bypasses</span>
+        <span class="stat-value" id="bypassCount">0</span>
+      </div>
     </div>
+
+    <div class="section-title">Audit Log</div>
+    <div id="auditLog"><div class="audit-empty">No events yet.</div></div>
   </div>
 
   <div class="footer">
+    <button class="btn secondary" id="refreshLog">Refresh Log</button>
     <button class="btn danger" id="resetToken">Reset Token</button>
-    <span class="hint">v0.1.0 — Local only</span>
+  </div>
+  <div style="padding: 0 16px 12px; text-align:right;">
+    <span class="hint">v0.2.0 — Local only</span>
   </div>
 
   <script src="popup.js"></script>
