@@ -177,6 +177,22 @@ async function resolveVaultId(tabId, serverConvId) {
 }
 
 // ─────────────────────────────────────────────────────────
+// Diagnostics (content-free): what we saw and what we did, shown in the popup
+// ─────────────────────────────────────────────────────────
+
+let traceChain = Promise.resolve();
+function trace(entry) {
+  traceChain = traceChain.then(async () => {
+    const cur = (await chrome.storage.session.get("trace")).trace || [];
+    cur.unshift({ t: new Date().toLocaleTimeString(), ...entry });
+    if (cur.length > 25) cur.length = 25;
+    await chrome.storage.session.set({ trace: cur });
+  }).catch(() => {});
+}
+const setDiag = (patch) => chrome.storage.session.get("diag").then((r) =>
+  chrome.storage.session.set({ diag: { ...(r.diag || {}), ...patch } })).catch(() => {});
+
+// ─────────────────────────────────────────────────────────
 // CDP helpers
 // ─────────────────────────────────────────────────────────
 
@@ -191,6 +207,7 @@ async function block(source, requestId, reason, entityTypes = [], entityCount = 
   } catch (e) {
     console.error("[Doppel] failRequest failed:", e.message);
   }
+  trace({ outcome: "BLOCKED", detail: reason });
   await logActivity("block", { detail: reason, entityTypes, entityCount });
 }
 
@@ -297,6 +314,7 @@ async function handleSend(source, params, body) {
     await block(source, requestId, "continueRequest failed");
     return;
   }
+  trace({ kind: "send", outcome: "MASKED", detail: `${result.count} entities` });
   await logActivity("mask", { entityTypes: result.types, entityCount: result.count });
 }
 
@@ -356,6 +374,7 @@ async function handleFilePut(source, params, body) {
     return;
   }
   // The file pipeline does not report entity counts; count the file, not entities.
+  trace({ kind: "file-put", outcome: "MASKED", detail: `${body.length} -> ${masked.length} bytes` });
   await logActivity("file", { detail: "File masked", entityCount: 0 });
 }
 
@@ -384,6 +403,8 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
       console.debug(`[Doppel] ${request.method} ${h} -> ${kind || "passthrough"} hasBody=${!!request.hasPostData}`);
     }
   } catch {}
+
+  if (kind) trace({ method: request.method, host: (() => { try { return new URL(request.url).hostname; } catch { return "?"; } })(), kind, outcome: "intercepted" });
 
   if (!kind) {
     try { await cont(source, requestId); } catch (e) { console.error("[Doppel] passthrough failed:", e.message); }
@@ -439,8 +460,10 @@ function attachDebuggerToTab(tabId) {
         if (!mine) throw e;
       }
       await enableFetch(tabId);
+      setDiag({ lastAttach: `tab ${tabId} OK at ${new Date().toLocaleTimeString()}` });
     } catch (err) {
       console.error(`[Doppel] Attach failed for tab ${tabId}:`, err.message);
+      setDiag({ lastAttach: `tab ${tabId} FAILED: ${err.message}` });
     } finally {
       attaching.delete(tabId);
       updateBadge(tabId);
@@ -498,6 +521,7 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   attachedTabs.delete(source.tabId);
   updateBadge(source.tabId);
   console.warn(`[Doppel] Debugger detached from tab ${source.tabId}: ${reason}`);
+  setDiag({ lastDetach: `tab ${source.tabId}: ${reason} at ${new Date().toLocaleTimeString()}` });
 });
 
 // Toggle in the popup → attach/detach immediately.
@@ -557,6 +581,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (!tab) return sendResponse({ success: false, error: "No active tab" });
           await detachDebuggerFromTab(tab.id);
           sendResponse({ success: true });
+          break;
+        }
+
+        case "GET_DIAG": {
+          const r = await chrome.storage.session.get(["trace", "diag"]);
+          sendResponse({ success: true, trace: r.trace || [], diag: r.diag || {}, attached: [...attachedTabs] });
           break;
         }
 

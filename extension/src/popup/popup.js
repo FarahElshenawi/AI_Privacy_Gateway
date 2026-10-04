@@ -188,3 +188,24 @@ attachBtn.addEventListener("click", async () => {
   attachBtn.disabled = false;
   checkDebuggerStatus();
 });
+
+// --- Diagnostics (content-free) ---
+async function loadDiag() {
+  const el = document.getElementById("diag");
+  if (!el) return;
+  try {
+    const r = await chrome.runtime.sendMessage({ type: "GET_DIAG" });
+    const lines = [
+      `attached tabs: ${(r.attached || []).join(", ") || "none"}`,
+      `last attach: ${r.diag.lastAttach || "never"}`,
+      `last detach: ${r.diag.lastDetach || "never"}`,
+      "--- recent requests ---",
+      ...(r.trace || []).map((e) => `${e.t} ${e.method || ""} ${e.host || ""} ${e.kind || ""} ${e.outcome || ""} ${e.detail || ""}`.replace(/\s+/g, " ")),
+    ];
+    el.textContent = lines.join("\n");
+  } catch (e) {
+    el.textContent = "Service worker not responding: " + e.message;
+  }
+}
+loadDiag();
+setInterval(loadDiag, 3000);
