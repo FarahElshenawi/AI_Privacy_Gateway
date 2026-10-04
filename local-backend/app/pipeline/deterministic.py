@@ -127,7 +127,7 @@ _API_KEY_PATTERNS = [
     # AWS secret key (40 base64 chars, no clear prefix — only match if labeled)
     # (skip standalone AWS secret — too many false positives)
     # OpenAI: sk- followed by 48+ base64-url chars
-    ("openai_api_key", re.compile(r"\bsk-[A-Za-z0-9]{40,}\b"), None),
+    ("openai_api_key", re.compile(r"\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{32,}"), None),
     # GitHub personal access tokens (classic + fine-grained)
     ("github_pat", re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}\b"), None),
     # Slack tokens

@@ -38,6 +38,7 @@ const FETCH_PATTERNS = [
   "*://chatgpt.com/backend-api/*",
   "*://chat.openai.com/backend-api/*",
   "*://*.oaiusercontent.com/*",
+  "*://*.blob.core.windows.net/*",
 ].map((urlPattern) => ({ urlPattern, requestStage: "Request" }));
 
 const SESSION_KEY_VAULT_IDS = "vaultIdByConv";
@@ -229,7 +230,10 @@ function classify(request, urlObj) {
   if (method === "POST" && (path === "/backend-api/conversation" || path === "/backend-api/f/conversation")) {
     return "send";
   }
-  if (method === "PUT" && urlObj.hostname.endsWith(".oaiusercontent.com")) return "file-put";
+  if ((method === "PUT" || method === "POST") &&
+      (urlObj.hostname.endsWith(".oaiusercontent.com") || urlObj.hostname.endsWith(".blob.core.windows.net"))) {
+    return "file-put";
+  }
   if (method === "POST" && /^\/backend-api\/files(\/upload_reservations)?$/.test(path)) return "file-reserve";
   return null;
 }
@@ -372,6 +376,14 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
   try {
     kind = classify(request, new URL(request.url));
   } catch { kind = null; }
+
+  // Content-free diagnostics (host/method/kind only — never paths, queries or bodies).
+  try {
+    const h = new URL(request.url).hostname;
+    if (request.method !== "GET" && request.method !== "OPTIONS") {
+      console.debug(`[Doppel] ${request.method} ${h} -> ${kind || "passthrough"} hasBody=${!!request.hasPostData}`);
+    }
+  } catch {}
 
   if (!kind) {
     try { await cont(source, requestId); } catch (e) { console.error("[Doppel] passthrough failed:", e.message); }
