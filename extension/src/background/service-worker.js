@@ -579,7 +579,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Init
 // ─────────────────────────────────────────────────────────
 
+chrome.runtime.onStartup.addListener(() => syncAllTabs().catch(() => {}));
+
+// MV3 service workers sleep and are not started by an extension reload. A periodic
+// alarm wakes us so ChatGPT tabs are never left silently unprotected.
+chrome.alarms.create("doppel-sync", { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name === "doppel-sync") syncAllTabs().catch(() => {});
+});
+
 chrome.runtime.onInstalled.addListener(async () => {
+  syncAllTabs().catch(() => {});
   await getToken();
   const cur = await chrome.storage.local.get([PROTECTION_KEY, "promptsMasked"]);
   // Don't wipe stats/toggle on extension updates.
