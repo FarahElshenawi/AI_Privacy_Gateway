@@ -25,12 +25,16 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS — only allow the extension (which runs on chat.openai.com)
+# CORS — allow the extension (which runs on chatgpt.com or chat.openai.com)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://chat.openai.com", "http://localhost:3000"],
+    allow_origins=[
+        "https://chatgpt.com",
+        "https://chat.openai.com",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 

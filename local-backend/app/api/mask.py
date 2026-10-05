@@ -2,6 +2,10 @@
 
 Detects PII, generates (original, replacement) pairs, stores them in the
 vault, and returns the masked text.
+
+PRIVACY: The response does NOT include `pairs` (which contain real values).
+The SW applies masks per-slot by calling /mask once per message-part, so
+it doesn't need the pairs returned — it uses the `masked_text` directly.
 """
 from __future__ import annotations
 
@@ -24,10 +28,15 @@ class MaskRequest(BaseModel):
 
 
 class MaskResponse(BaseModel):
+    """Response schema.
+
+    NOTE: `pairs` is intentionally omitted — it contains real PII values.
+    The SW applies masks by calling /mask once per message slot and using
+    the returned `masked_text` directly, never the pairs.
+    """
     masked_text: str
-    pairs: list[tuple[str, str]]
     entities_found: int
-    entity_types: list[str] = []
+    entity_types: list[str]
     leaks: list[dict]
     safe_to_send: bool
 
@@ -48,17 +57,19 @@ async def mask_pii(
     # Step 1: Detect
     entities = detect(body.text, body.entity_schema)
 
-    # Step 2: Mask (generates pairs + stores in vault)
+    # Step 2: Mask (generates pairs + stores in vault; pairs are NOT returned)
     masked_text, pairs = mask_text(body.text, entities, body.conversation_id)
 
     # Step 3: Residual scan (last gate)
     leaks = scan(masked_text)
 
+    # Extract entity TYPES only (safe to expose — no real values)
+    entity_types = sorted({e.get("type", "") for e in entities if e.get("type")})
+
     return MaskResponse(
         masked_text=masked_text,
-        pairs=pairs,
         entities_found=len(entities),
-        entity_types=sorted({e.get("type", "") for e in entities if e.get("type")}),
+        entity_types=entity_types,
         leaks=leaks,
         safe_to_send=len(leaks) == 0,
     )

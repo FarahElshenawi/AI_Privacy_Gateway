@@ -52,16 +52,12 @@ class MultimodalPipeline:
             return {"success": False, "error": "Image files require OCR (not supported in v1)"}
 
         # Step 2: Parse — extract text
+        parser = get_parser(file_type)
         try:
-            parser = get_parser(file_type)
             parsed_data = parser.parse(str(input_path))
-            parsed_data["metadata"] = {"path": str(input_path), "type": file_type}
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to parse file: {e}",
-                "input_path": str(input_path),
-            }
+        except (ValueError, Exception) as e:
+            return {"success": False, "error": f"Failed to parse file: {e}"}
+        parsed_data["metadata"] = {"path": str(input_path), "type": file_type}
 
         # Step 3: Detect — run detection engine on extracted text
         full_text = self._get_full_text(parsed_data, file_type)
@@ -71,26 +67,13 @@ class MultimodalPipeline:
         pairs = mask_entities(entities, conversation_id)
 
         # Step 5: Reconstruct — apply pairs to the original file
-        try:
-            reconstructor = get_reconstructor(file_type)
-            reconstructor.reconstruct(parsed_data, pairs, str(output_path))
-        except Exception as e:
-            # Fail closed: remove any half-written output file
-            if output_path.exists():
-                output_path.unlink()
-            return {
-                "success": False,
-                "error": f"Reconstruction failed: {e}",
-                "input_path": str(input_path),
-            }
+        reconstructor = get_reconstructor(file_type)
+        reconstructor.reconstruct(parsed_data, pairs, str(output_path))
 
         # Step 6: Residual scan — re-check the masked file
-        try:
-            masked_parsed = parser.parse(str(output_path))
-            masked_text = self._get_full_text(masked_parsed, file_type)
-            leaks = scan(masked_text)
-        except Exception:
-            leaks = []
+        masked_parsed = parser.parse(str(output_path))
+        masked_text = self._get_full_text(masked_parsed, file_type)
+        leaks = scan(masked_text)
 
         return {
             "success": len(leaks) == 0,

@@ -1,7 +1,11 @@
 """Step 1 — Detection orchestrator. Owner: Detection Engine.
 
-Tiered hybrid: deterministic tier first (catches structured PII with ~100%
-precision in ms), then semantic tier for the rest (names, orgs, locations).
+Tiered hybrid: Tier 1 deterministic (regex + checksums) first, then
+Tier 2 semantic (GLiNER2-PII via ONNX) for names/orgs/locations.
+
+Tier 1 is now powered by the ComplianceValidatorEngine (tier1/ package),
+which provides 24 entity types with real mathematical validators (Luhn,
+mod-97, ABA 3-7-1, base58check, bech32) and boundary-safe lookarounds.
 
 The semantic tier uses the TextChunker to split long inputs into
 overlapping chunks at sentence boundaries, so documents longer than
@@ -18,8 +22,53 @@ from __future__ import annotations
 
 from typing import TypedDict
 
-from app.pipeline.deterministic import detect as detect_deterministic, Entity
+from app.pipeline.tier1 import ComplianceValidatorEngine, EngineConfig, Span
 from app.pipeline.chunker import TextChunker
+
+
+# === Entity type (unchanged — keeps masking pipeline working) ===
+
+class Entity(TypedDict):
+    type: str
+    text: str
+    start: int
+    end: int
+    confidence: float
+    source: str
+
+
+# === Tier 1 engine (singleton — thread-safe after construction) ===
+
+_tier1_engine: ComplianceValidatorEngine | None = None
+
+
+def _get_tier1_engine() -> ComplianceValidatorEngine:
+    """Lazily construct the Tier 1 engine. Thread-safe after first call."""
+    global _tier1_engine
+    if _tier1_engine is None:
+        _tier1_engine = ComplianceValidatorEngine()
+    return _tier1_engine
+
+
+# === Span → Entity adapter ===
+
+def _span_to_entity(span: Span, text: str) -> Entity:
+    """Convert a Tier 1 Span to the Entity TypedDict used by the masking pipeline.
+
+    Field mapping:
+        span.label    → entity.type
+        span.score    → entity.confidence
+        span.source   → entity.source ("regex" → "deterministic" for backward compat)
+        text[s:e]     → entity.text
+    """
+    return Entity(
+        type=span.label,
+        text=text[span.start:span.end],
+        start=span.start,
+        end=span.end,
+        confidence=span.score,
+        source="deterministic",  # backward compat with masking pipeline
+    )
 
 
 # === Lazy-loaded semantic tier (GLiNER2-PII via ONNX) ===
@@ -56,8 +105,8 @@ def _run_gliner_inference(model, text: str, schema: list[str]) -> list[Entity]:
     """
     # TODO: replace with actual GLiNER inference
     # result = model.predict_entities(text, schema, threshold=0.5)
-    # return [Entity(type=e["label"], text=e["text"], start=e["start"], end=e["end"],
-    #         confidence=e["score"], source="semantic") for e in result]
+    # return [Entity(type=e["label"], text=e["text"], start=e["start"],
+    #         end=e["end"], confidence=e["score"], source="semantic") for e in result]
     return []
 
 
@@ -95,7 +144,8 @@ def _detect_semantic(text: str, schema: list[str]) -> list[Entity]:
 def detect(text: str, schema: list[str] | None = None) -> list[Entity]:
     """Run the tiered detector and return merged entities.
 
-    Tier 1 (deterministic): always runs. Catches structured PII.
+    Tier 1 (deterministic): always runs. 24 entity types via
+        ComplianceValidatorEngine (regex + checksums + boundary lookarounds).
     Tier 2 (semantic): runs on text that may contain names/orgs/locations.
         Schema is the label set passed at inference (label-conditioned).
         Long text is automatically chunked at sentence boundaries with
@@ -116,13 +166,17 @@ def detect(text: str, schema: list[str] | None = None) -> list[Entity]:
         schema = ["PERSON", "ORGANIZATION", "LOCATION"]
 
     # === Tier 1: deterministic (always runs first, handles any length) ===
-    deterministic_results = detect_deterministic(text)
+    # Uses scan_raw() which normalizes obfuscated input (zero-width chars,
+    # fullwidth digits, en-dashes) and maps spans back to original offsets.
+    engine = _get_tier1_engine()
+    tier1_spans = engine.scan_raw(text)
+    tier1_results = [_span_to_entity(span, text) for span in tier1_spans]
 
     # === Tier 2: semantic (GLiNER2-PII, with chunking for long text) ===
     semantic_results = _detect_semantic(text, schema)
 
     # === Merge ===
-    all_results = deterministic_results + semantic_results
+    all_results = tier1_results + semantic_results
 
     # Deduplicate — same span + type, keep first occurrence
     seen = set()
@@ -158,10 +212,12 @@ if __name__ == "__main__":
             sample = f.read()
     else:
         sample = """Hey team, my card is 4242 4242 4242 4242 and my email is john.doe@example.com.
-        Server IP: 192.168.1.1. AWS key: AKIAIOSFODNN7EXAMPLE.
-        Call me at +14155551234. I'm John Smith from Acme Corp."""
+        Server IP: 192.168.1.1. AWS key: AKIAIOSFODNN7EXAMPLE. OpenAI key: sk-abc123def456.
+        JWT: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signature123.
+        IBAN: GB82WEST12345698765432. Call me at +14155551234.
+        SSN: 123-45-6789. Send BTC to 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa."""
 
     results = detect(sample)
     for r in results:
-        print(f"  [{r['type']:<14}] {r['text']!r:60} (src: {r['source']})")
+        print(f"  [{r['type']:<20}] {r['text']!r:60} (src: {r['source']})")
     print(f"\n{len(results)} entities found.")

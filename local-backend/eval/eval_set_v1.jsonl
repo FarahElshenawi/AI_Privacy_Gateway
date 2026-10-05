@@ -1,0 +1,64 @@
+{"text": "My card is 4242424242424242", "spans": [{"start": 11, "end": 27, "label": "CREDIT_CARD"}]}
+{"text": "My card is 4242 4242 4242 4242", "spans": [{"start": 11, "end": 30, "label": "CREDIT_CARD"}]}
+{"text": "My card is 4242-4242-4242-4242", "spans": [{"start": 11, "end": 30, "label": "CREDIT_CARD"}]}
+{"text": "AMEX card: 378282246310005", "spans": [{"start": 12, "end": 27, "label": "CREDIT_CARD"}]}
+{"text": "Invalid card: 4242424242424243", "spans": []}
+{"text": "Card 4242424242424242, CVV 123, exp 12/25", "spans": [{"start": 5, "end": 21, "label": "CREDIT_CARD"}, {"start": 28, "end": 31, "label": "CVV"}, {"start": 38, "end": 42, "label": "CARD_EXPIRY"}]}
+{"text": "CVV: 123", "spans": [{"start": 5, "end": 8, "label": "CVV"}]}
+{"text": "Expiry date: 03/27", "spans": [{"start": 13, "end": 18, "label": "CARD_EXPIRY"}]}
+{"text": "Expiry: 13/25", "spans": []}
+{"text": "Expiry: 12/2099", "spans": [{"start": 8, "end": 16, "label": "CARD_EXPIRY"}]}
+{"text": "Contact john.doe@example.com for info", "spans": [{"start": 8, "end": 28, "label": "EMAIL"}]}
+{"text": "Email: sarah+newsletter@gmail.com", "spans": [{"start": 7, "end": 33, "label": "EMAIL"}]}
+{"text": "Visit https://example.com/page", "spans": []}
+{"text": "Call +14155551234", "spans": [{"start": 5, "end": 17, "label": "PHONE_NUMBER"}]}
+{"text": "Phone: +1 (415) 555-1234", "spans": [{"start": 7, "end": 24, "label": "PHONE_NUMBER"}]}
+{"text": "Server IP: 192.168.1.42", "spans": [{"start": 12, "end": 24, "label": "IP_ADDRESS"}]}
+{"text": "Server IP: 10.0.0.1", "spans": [{"start": 12, "end": 19, "label": "IP_ADDRESS"}]}
+{"text": "Loopback: 127.0.0.1", "spans": []}
+{"text": "IPv6: 2001:db8::1", "spans": [{"start": 6, "end": 17, "label": "IP_ADDRESS"}]}
+{"text": "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE", "spans": [{"start": 18, "end": 38, "label": "API_KEY"}]}
+{"text": "OpenAI key: sk-proj-abcdef1234567890abcdefghijklmnopqrstuvwxyz", "spans": [{"start": 12, "end": 66, "label": "API_KEY"}]}
+{"text": "GitHub token: ghp_ABCDEF1234567890abcdef1234567890ABCD", "spans": [{"start": 14, "end": 54, "label": "API_KEY"}]}
+{"text": "Stripe: sk_live_abcdef1234567890abcdef", "spans": [{"start": 8, "end": 38, "label": "API_KEY"}]}
+{"text": "Google: AIzaodJFCrnl2edlBDdz1C5Jau2RJtBRnlWmTSH", "spans": [{"start": 8, "end": 47, "label": "API_KEY"}]}
+{"text": "Slack: xoxb-1234567890-abcdef", "spans": [{"start": 7, "end": 30, "label": "API_KEY"}]}
+{"text": "Token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signature123abc", "spans": [{"start": 7, "end": 66, "label": "AUTH_TOKEN"}]}
+{"text": "Token: aaa.bbb.ccc", "spans": []}
+{"text": "Bearer ya29.abcdef1234567890abcdefghijklmnopqrstuvwxyz0123456789ABCD", "spans": [{"start": 7, "end": 71, "label": "AUTH_TOKEN"}]}
+{"text": "IBAN: GB82WEST12345698765432", "spans": [{"start": 6, "end": 28, "label": "IBAN"}]}
+{"text": "IBAN: GB82WEST12345698765433", "spans": []}
+{"text": "SWIFT/BIC: CHASUS33", "spans": [{"start": 11, "end": 19, "label": "SWIFT_BIC"}]}
+{"text": "Routing: 021000021", "spans": [{"start": 9, "end": 18, "label": "ABA_ROUTING"}]}
+{"text": "Routing: 123456789", "spans": []}
+{"text": "SSN: 123-45-6789", "spans": [{"start": 5, "end": 16, "label": "US_SSN"}]}
+{"text": "SSN: 000-45-6789", "spans": []}
+{"text": "SSN: 900-12-3456", "spans": []}
+{"text": "Send BTC to 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "spans": [{"start": 12, "end": 47, "label": "CRYPTO_WALLET"}]}
+{"text": "ETH: 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1", "spans": [{"start": 5, "end": 47, "label": "CRYPTO_WALLET"}]}
+{"text": "Password: hunter2secure", "spans": [{"start": 10, "end": 22, "label": "PASSWORD"}]}
+{"text": "password = x", "spans": []}
+{"text": "DB: postgresql://user:secret@db.example.com:5432/mydb", "spans": [{"start": 4, "end": 55, "label": "CONNECTION_STRING"}]}
+{"text": "Server: 192.168.1.42", "spans": [{"start": 8, "end": 20, "label": "IP_ADDRESS"}]}
+{"text": "Internal: http://jenkins.internal:8080", "spans": [{"start": 9, "end": 37, "label": "INTERNAL_URL"}]}
+{"text": "Host: dev.corp.acme.com", "spans": [{"start": 6, "end": 23, "label": "INTERNAL_HOSTNAME"}]}
+{"text": "Recovery codes: 1234-5678, 9abc-def0", "spans": [{"start": 16, "end": 24, "label": "RECOVERY_CODE"}, {"start": 26, "end": 34, "label": "RECOVERY_CODE"}]}
+{"text": "EIN: 12-3456789", "spans": [{"start": 5, "end": 15, "label": "TAX_ID"}]}
+{"text": "VAT: GB12345678", "spans": [{"start": 5, "end": 15, "label": "TAX_ID"}]}
+{"text": "MRN: MRN-123456", "spans": [{"start": 5, "end": 15, "label": "MEDICAL_RECORD_NUMBER"}]}
+{"text": "Member ID: POLICY1234567", "spans": [{"start": 11, "end": 23, "label": "HEALTH_INSURANCE_ID"}]}
+{"text": "Account: 12345678", "spans": [{"start": 9, "end": 17, "label": "BANK_ACCOUNT_NUMBER"}]}
+{"text": "Account: 123456789012", "spans": [{"start": 9, "end": 21, "label": "BANK_ACCOUNT_NUMBER"}]}
+{"text": "Account: 111111111", "spans": []}
+{"text": "The quick brown fox jumps over the lazy dog", "spans": []}
+{"text": "Order #12345 has been shipped", "spans": []}
+{"text": "Meeting at 3pm on Tuesday", "spans": []}
+{"text": "The year is 2024 and the temperature is 25.5 degrees", "spans": []}
+{"text": "Version 2.0.1 was released", "spans": []}
+{"text": "Contact: user@example.com, call +14155551234, card 4242424242424242", "spans": [{"start": 9, "end": 25, "label": "EMAIL"}, {"start": 32, "end": 44, "label": "PHONE_NUMBER"}, {"start": 51, "end": 67, "label": "CREDIT_CARD"}]}
+{"text": "Keys: AWS AKIAIOSFODNN7EXAMPLE, GitHub ghp_ABCDEF1234567890abcdef1234567890ABCD", "spans": [{"start": 11, "end": 31, "label": "API_KEY"}, {"start": 41, "end": 81, "label": "API_KEY"}]}
+{"text": "My card 4242424242424242 expires 12/25, CVV is 123", "spans": [{"start": 8, "end": 24, "label": "CREDIT_CARD"}, {"start": 34, "end": 38, "label": "CARD_EXPIRY"}, {"start": 48, "end": 51, "label": "CVV"}]}
+{"text": "Just a normal sentence without any PII in it at all", "spans": []}
+{"text": "Random numbers: 12345 67890 54321", "spans": []}
+{"text": "Pi is approximately 3.14159265358979", "spans": []}
+{"text": "File size: 1048576 bytes", "spans": []}

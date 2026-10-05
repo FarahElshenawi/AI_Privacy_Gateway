@@ -79,17 +79,19 @@ def mask_entities(entities: list[dict], conversation_id: str = "default") -> lis
             # Check if this real value already has a mapping in this conversation
             existing_entry = vault.lookup_by_real(conversation_id, original_text)
             if existing_entry is not None:
-                # Reuse existing mapping
+                # Reuse existing mapping — same person gets same fake across calls
                 pairs.append((original_text, existing_entry.fake_value))
                 continue
 
             generator = _FAKER_GENERATORS.get(entity_type)
             if generator is None:
+                # Unknown type with faker routing — use a generic name
                 generator = generate_fake_name
 
             fake_value = generate_unique_fake(existing_fakes, generator)
             existing_fakes.add(fake_value)
 
+            # Store in vault for later restoration
             vault.add_mapping(
                 conversation_id=conversation_id,
                 fake_value=fake_value,
@@ -104,8 +106,8 @@ def mask_entities(entities: list[dict], conversation_id: str = "default") -> lis
             pass
 
         else:
-            # Unknown routing — default to keeping (fail-safe for non-PII)
-            pass
+            # Unknown routing — fail-safe: redact rather than leak
+            pairs.append((original_text, REDACTED))
 
     return pairs
 
@@ -136,14 +138,15 @@ def mask_text(text: str, entities: list[dict], conversation_id: str = "default")
 
 
 def apply_pairs(text: str, pairs: list[tuple[str, str]]) -> tuple[str, int]:
-    """Apply replacement pairs to text. Returns (masked_text, replacement_count).
-    
-    Replaces longest originals first to prevent partial matches.
+    """Apply (original, replacement) pairs to text, longest originals first.
+
+    Returns (masked_text, replacement_count).
+    Used by the multimodal pipeline and file reconstruction layer.
     """
+    masked = text
     count = 0
-    sorted_pairs = sorted(pairs, key=lambda p: len(p[0]), reverse=True)
-    for original, replacement in sorted_pairs:
-        if original in text:
-            count += text.count(original)
-            text = text.replace(original, replacement)
-    return text, count
+    for original, replacement in sorted(pairs, key=lambda p: len(p[0]), reverse=True):
+        if original and original in masked:
+            count += masked.count(original)
+            masked = masked.replace(original, replacement)
+    return masked, count
