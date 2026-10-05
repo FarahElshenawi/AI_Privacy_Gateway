@@ -38,3 +38,4 @@ eval/reports/*
 cloud-backend/**/*.db
 cloud-backend/**/*.db
 *.db
+local-backend/eval/eval_set_v2.jsonl
