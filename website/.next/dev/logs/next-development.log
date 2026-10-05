@@ -1,0 +1,10 @@
+{"timestamp":"00:00:02.986","source":"Server","level":"LOG","message":"It looks like you're trying to use TypeScript but do not have the required package(s) installed.\nInstalling dependencies\n\nIf you are not trying to use TypeScript, please remove the tsconfig.json file from your package root (and any TypeScript files in your app and pages directories).\n"}
+{"timestamp":"00:00:03.167","source":"Server","level":"LOG","message":""}
+{"timestamp":"00:00:03.168","source":"Server","level":"LOG","message":"Installing devDependencies (npm):"}
+{"timestamp":"00:00:03.169","source":"Server","level":"LOG","message":"- @types/node"}
+{"timestamp":"00:00:03.169","source":"Server","level":"LOG","message":""}
+{"timestamp":"00:00:14.395","source":"Server","level":"LOG","message":""}
+{"timestamp":"00:00:14.960","source":"Server","level":"LOG","message":""}
+{"timestamp":"00:00:18.034","source":"Server","level":"LOG","message":"○ Compiling / ..."}
+{"timestamp":"00:00:21.523","source":"Browser","level":"INFO","message":"Download the React DevTools for a better development experience: https://react.dev/link/react-devtools"}
+{"timestamp":"00:00:38.590","source":"Browser","level":"INFO","message":"Download the React DevTools for a better development experience: https://react.dev/link/react-devtools"}

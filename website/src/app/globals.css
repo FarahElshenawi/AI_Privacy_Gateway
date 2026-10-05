@@ -1,0 +1,438 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains-mono);
+  --font-serif: var(--font-fraunces);
+  --color-sidebar-ring: var(--border);
+  --color-sidebar-border: var(--border);
+  --color-sidebar-accent-foreground: var(--ink);
+  --color-sidebar-accent: var(--surface);
+  --color-sidebar-primary-foreground: var(--bg);
+  --color-sidebar-primary: var(--primary);
+  --color-sidebar-foreground: var(--ink);
+  --color-sidebar: var(--bg);
+  --color-chart-5: var(--muted);
+  --color-chart-4: var(--danger);
+  --color-chart-3: var(--body);
+  --color-chart-2: var(--primary-h);
+  --color-chart-1: var(--primary);
+  --color-ring: var(--primary);
+  --color-input: var(--border);
+  --color-border: var(--border);
+  --color-destructive: var(--danger);
+  --color-accent-foreground: var(--bg);
+  --color-accent: var(--primary);
+  --color-muted-foreground: var(--muted);
+  --color-muted: var(--subtle);
+  --color-secondary-foreground: var(--ink);
+  --color-secondary: var(--subtle);
+  --color-primary-foreground: var(--bg);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--ink);
+  --color-popover: var(--surface);
+  --color-card-foreground: var(--ink);
+  --color-card: var(--surface);
+
+  /* ===== Doppel — Graphite and Emerald =====
+     One graphite background, one emerald accent, one muted red for blocked.
+     Dark, serious, non-blue, no gimmicks, no glow effects. */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-subtle: var(--subtle);
+  --color-ink: var(--ink);
+  --color-body: var(--body);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-h: var(--primary-h);
+  --color-danger: var(--danger);
+
+  /* Legacy aliases — keep names so existing components don't break */
+  --color-paper: var(--bg);
+  --color-oxblood: var(--primary);
+  --color-oxblood-hover: var(--primary-h);
+  --color-gold: var(--primary);
+  --color-alert: var(--danger);
+  --color-mist: var(--ink);
+  --color-mist-dim: var(--body);
+  --color-tomato: var(--primary);
+  --color-tomato-hover: var(--primary-h);
+  --color-yellow: var(--primary);
+  --color-pink: var(--primary);
+  --color-safe: var(--primary);
+  --color-lime: var(--primary);
+  --color-lime-hover: var(--primary-h);
+  --color-purple: var(--primary);
+  --color-amber: var(--primary);
+  --color-teal: var(--primary);
+  --color-ember: var(--danger);
+  --color-brass: var(--primary);
+
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  --radius-pill: 50000px;
+}
+
+:root {
+  /* ===== Doppel palette — Graphite and Emerald =====
+     Graphite-black background, one emerald accent, muted brick red for blocked.
+     Dark, serious, non-blue, no glow, no gimmicks. */
+  --bg: #0C0D0C;             /* page background — graphite black */
+  --surface: #16181A;         /* cards — elevated graphite */
+  --subtle: #1C1E1D;          /* subtle inset */
+  --border: #262827;          /* hairline border — visible on graphite */
+  --ink: #E8E8E5;             /* headlines — warm off-white */
+  --body: #A8A8A3;            /* body text — muted warm grey */
+  --muted: #7A7C7A;           /* muted grey */
+  --primary: #2FD58F;          /* THE accent — emerald */
+  --primary-h: #5AE6A8;       /* emerald hover — slightly brighter */
+  --danger: #B85450;          /* blocked states — muted brick red (desaturated) */
+
+  /* shadcn aliasing */
+  --background: #0C0D0C;
+  --foreground: #E8E8E5;
+  --card: #16181A;
+  --card-foreground: #E8E8E5;
+  --popover: #16181A;
+  --popover-foreground: #E8E8E5;
+  --primary: #2FD58F;
+  --primary-foreground: #0C0D0C;
+  --secondary: #1C1E1D;
+  --secondary-foreground: #E8E8E5;
+  --muted: #1C1E1D;
+  --muted-foreground: #7A7C7A;
+  --accent: #2FD58F;
+  --accent-foreground: #0C0D0C;
+  --destructive: #B85450;
+  --border: #262827;
+  --input: #262827;
+  --ring: #2FD58F;
+  --chart-1: #2FD58F;
+  --chart-2: #5AE6A8;
+  --chart-3: #A8A8A3;
+  --chart-4: #B85450;
+  --chart-5: #E8E8E5;
+  --sidebar: #0C0D0C;
+  --sidebar-foreground: #E8E8E5;
+  --sidebar-primary: #2FD58F;
+  --sidebar-primary-foreground: #0C0D0C;
+  --sidebar-accent: #16181A;
+  --sidebar-accent-foreground: #E8E8E5;
+  --sidebar-border: #262827;
+  --sidebar-ring: #2FD58F;
+}
+
+.dark {
+  /* The brand stays graphite — even "dark mode" mirrors the root. */
+  --background: #0C0D0C;
+  --foreground: #E8E8E5;
+  --card: #16181A;
+  --card-foreground: #E8E8E5;
+  --popover: #16181A;
+  --popover-foreground: #E8E8E5;
+  --primary: #2FD58F;
+  --primary-foreground: #0C0D0C;
+  --secondary: #1C1E1D;
+  --secondary-foreground: #E8E8E5;
+  --muted: #1C1E1D;
+  --muted-foreground: #7A7C7A;
+  --accent: #2FD58F;
+  --accent-foreground: #0C0D0C;
+  --destructive: #B85450;
+  --border: #262827;
+  --input: #262827;
+  --ring: #2FD58F;
+  --chart-1: #2FD58F;
+  --chart-2: #5AE6A8;
+  --chart-3: #A8A8A3;
+  --chart-4: #B85450;
+  --chart-5: #E8E8E5;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    background-color: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  }
+}
+
+/* ===== Reusable utilities ===== */
+
+/* Faint grid backdrop — subtle white lines on graphite (no glow) */
+.bg-grid-faint {
+  background-image:
+    linear-gradient(to right, rgba(232, 232, 229, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(232, 232, 229, 0.03) 1px, transparent 1px);
+  background-size: 56px 56px;
+  background-position: -1px -1px;
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, #000 30%, transparent 100%);
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, #000 30%, transparent 100%);
+}
+
+.bg-grid-dot {
+  background-image: radial-gradient(rgba(232, 232, 229, 0.05) 1px, transparent 1.5px);
+  background-size: 28px 28px;
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, #000 30%, transparent 100%);
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, #000 30%, transparent 100%);
+}
+
+.bg-grid-strong {
+  background-image:
+    linear-gradient(to right, rgba(232, 232, 229, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(232, 232, 229, 0.04) 1px, transparent 1px);
+  background-size: 64px 64px;
+  background-position: -1px -1px;
+  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 40%, #000 20%, transparent 90%);
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 40%, #000 20%, transparent 90%);
+}
+
+/* NO radial vignette / glow — kept as no-op for legacy components that reference it */
+.bg-radial-vignette {
+  background: none;
+}
+
+/* ===== Refined card — hairline border, no shadow, no glow, 12px radius ===== */
+.refined-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 240ms ease, transform 240ms ease;
+}
+.refined-card:hover {
+  border-color: var(--primary);
+  transform: translateY(-2px);
+}
+
+.refined-card-lg {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 240ms ease;
+}
+.refined-card-lg:hover {
+  border-color: var(--primary);
+}
+
+/* Refined chip — for tags */
+.refined-chip {
+  background: var(--subtle);
+  border: 1px solid var(--border);
+  border-radius: 50000px;
+  color: var(--ink);
+}
+.refined-chip-oxblood {
+  background: var(--primary);
+  color: var(--bg);
+  border: 1px solid var(--primary);
+  border-radius: 50000px;
+}
+.refined-chip-gold {
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 50000px;
+}
+
+/* ===== Pill buttons — ONE emerald primary per screen ===== */
+.btn-lime {
+  background: var(--primary);
+  color: var(--bg);
+  border: 1px solid var(--primary);
+  border-radius: 50000px;
+  font-weight: 600;
+  transition: background-color 200ms ease, border-color 200ms ease, transform 200ms ease;
+}
+.btn-lime:hover {
+  background: var(--primary-h);
+  border-color: var(--primary-h);
+  transform: translateY(-1px);
+}
+.btn-lime:active {
+  transform: translateY(0);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 50000px;
+  font-weight: 500;
+  transition: border-color 200ms ease, color 200ms ease;
+}
+.btn-outline:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+/* Plain text link — for the "See how it works →" */
+.text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ink);
+  font-weight: 500;
+  font-size: 15px;
+  border-bottom: 1px solid transparent;
+  transition: border-color 200ms ease, color 200ms ease;
+}
+.text-link:hover {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+/* ===== Eyebrow — small caps, muted grey, wide letter-spacing (no brass, no emerald) ===== */
+.eyebrow {
+  font-family: var(--font-inter), sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ===== Animated underline — for nav links ===== */
+.nav-link {
+  position: relative;
+  padding: 0.5rem 0;
+  color: var(--body);
+  transition: color 200ms ease;
+}
+.nav-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0.25rem;
+  height: 1.5px;
+  width: 0;
+  background: var(--primary);
+  transition: width 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.nav-link:hover,
+.nav-link:focus {
+  color: var(--ink);
+}
+.nav-link:hover::after,
+.nav-link:focus::after {
+  width: 100%;
+}
+
+/* ===== Trust line — small emerald checks ===== */
+.trust-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.trust-check::before {
+  content: "✓";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* Scroll reveal — subtle fade-in (the only animation we keep) */
+@keyframes reveal-up {
+  0% { opacity: 0; transform: translateY(16px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Code-block pretty styling */
+.mono-code {
+  font-family: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-feature-settings: "calt" 1, "ss01" 1;
+}
+
+/* Serif alias — Fraunces for headlines */
+.serif {
+  font-family: var(--font-fraunces), Georgia, "Times New Roman", serif;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+/* Custom scrollbar — graphite-themed */
+.dark-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.dark-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dark-scroll::-webkit-scrollbar-thumb {
+  background: rgba(232, 232, 229, 0.10);
+  border-radius: 999px;
+}
+.dark-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(47, 213, 143, 0.45);
+}
+
+/* Reduce motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ===== All legacy gimmick utility classes — kept as NO-OPS so existing components don't break =====
+   We stripped the gimmicks but the JSX still references these class names. They render as nothing. */
+.sticker-card { composes: refined-card; }
+.sticker-card-lg { composes: refined-card-lg; }
+.sticker-chip { composes: refined-chip; }
+.sticker-chip-tomato { composes: refined-chip-oxblood; }
+.sticker-chip-yellow { composes: refined-chip-gold; }
+.sticker-chip-safe { composes: refined-chip-oxblood; }
+.sticker-chip-pink { composes: refined-chip-gold; }
+.sticker-tilt-l { transform: none; }
+.sticker-tilt-r { transform: none; }
+.marker-swipe {
+  background: none;
+  padding: 0;
+  transform: none;
+}
+.marker-swipe-tomato {
+  background: none;
+  padding: 0;
+  transform: none;
+}
+.glass-card { composes: refined-card; }
+.glass-card-hover { composes: refined-card; }
+.caret { display: none; }
+.status-pulse { animation: none; }
+.scan-sweep { animation: none; display: none; }
+.stamp-slam { animation: none; }
+.halo-pulse { animation: none; }
+.tick-pop { animation: none; }
+.flow-dash { animation: none; }
+.slow-spin { animation: none; }
+.marquee-track { animation: none; }
+.bg-drift { animation: none; }
+.bg-drift { transform: none; }
+.flow-line { animation: none; }
+.row-enter { animation: none; }
+ 
