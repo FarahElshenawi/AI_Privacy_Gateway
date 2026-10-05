@@ -43,22 +43,22 @@ User types prompt / uploads file in ChatGPT
 The control plane runs separately and manages policy distribution and audit — it never sees prompt content.
 
 ```
-┌──────────────────────────────────────────────────────┐
+┌────────────────────────────────────────────────────────┐
 │  CONTROL PLANE (Cloud — cut by default in v1)          │
 │                                                        │
-│  ┌─────────────────┐     ┌──────────────────────┐     │
-│  │  Cloud Backend   │     │  Admin Dashboard      │     │
-│  │  (FastAPI)       │     │  (React)               │     │
-│  │                  │     │                        │     │
-│  │  • Policy CRUD   │◄───►│  • Edit entity rules   │     │
-│  │  • Audit ingest  │     │  • View masking stats  │     │
-│  │  • Org management│     │  • Leak rate monitor   │     │
-│  │  • Signed policy │     │  • Fail-closed events  │     │
-│  └────────┬────────┘     └──────────────────────┘     │
-│           │                                              │
-│           │ (metadata only: counts, types, timing)      │
-│           │ NEVER prompt content, masked or unmasked     │
-└───────────┼──────────────────────────────────────────────┘
+│  ┌──────────────────┐     ┌────────────────────────┐   │
+│  │  Cloud Backend   │     │  Admin Dashboard       │   │
+│  │  (FastAPI)       │     │  (React)               │   │
+│  │                  │     │                        │   │
+│  │  • Policy CRUD   │◄───►│  • Edit entity rules   │   │
+│  │  • Audit ingest  │     │  • View masking stats  │   │
+│  │  • Org management│     │  • Leak rate monitor   │   │
+│  │  • Signed policy │     │  • Fail-closed events  │   │
+│  └────────┬─────────┘     └────────────────────────┘   │
+│           │                                            │
+│           │ (metadata only: counts, types, timing)     │
+│           │ NEVER prompt content, masked or unmasked   │
+└───────────┼────────────────────────────────────────────┘
             │
             ▼
    Local Backend pulls policy + pushes audit
@@ -127,30 +127,30 @@ The extension will:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  BROWSER (untrusted page context)                                    │
-│  ChatGPT tab ── requests paused at network layer (CDP Fetch)         │
-│                           │ chrome.debugger                          │
+│  BROWSER (untrusted page context)                                   │
+│  ChatGPT tab ── requests paused at network layer (CDP Fetch)        │
+│                           │ chrome.debugger                         │
 │                           ┌────────▼──────────┐                     │
-│                           │  service-worker   │ (holds token)        │
+│                           │  service-worker   │ (holds token)       │
 │                           └────────┬──────────┘                     │
 └────────────────────────────────────┼────────────────────────────────┘
                                      │ HTTP (127.0.0.1:8765)
-┌────────────────────────────────────┼────────────────────────────────┐
-│  LOCAL BACKEND (trusted)            ▼                                 │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  Detection Pipeline                                           │   │
+┌────────────────────────────────────┼───────────────────────────────┐
+│  LOCAL BACKEND (trusted)           ▼                               │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  Detection Pipeline                                         │   │
 │  │  ┌─────────────────┐  ┌──────────────────────────────────┐  │   │
 │  │  │ Deterministic   │  │ Semantic (GLiNER2-PII via ONNX)  │  │   │
-│  │  │ Luhn, JWT, API   │  │ Names, organizations, locations  │  │   │
-│  │  │ keys, IBAN, etc. │  │ + text chunker for long inputs   │  │   │
+│  │  │ Luhn, JWT, API  │  │ Names, organizations, locations  │  │   │
+│  │  │ keys, IBAN, etc.│  │ + text chunker for long inputs   │  │   │
 │  │  └─────────────────┘  └──────────────────────────────────┘  │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐    │
-│  │ Mapping Vault   │  │ Residual Scanner │  │ Multimodal Layer  │    │
-│  │ (per-conversation│ │ (independent     │  │ (PDF, Word, Excel,│    │
-│  │  bijective, TTL)│  │  last gate)      │  │  text, markdown)  │    │
-│  └─────────────────┘  └─────────────────┘  └──────────────────┘    │
-└─────────────────────────────────────────────────────────────────────┘
+│  └─────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────┐  ┌──────────────────┐  ┌───────────────────┐  │
+│  │ Mapping Vault   │  │ Residual Scanner │  │ Multimodal Layer  │  │
+│  │(per-conversation│  │ (independent     │  │ (PDF, Word, Excel,│  │
+│  │  bijective, TTL)│  │  last gate)      │  │  text, markdown)  │  │
+│  └─────────────────┘  └──────────────────┘  └───────────────────┘  │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Trust Boundaries
