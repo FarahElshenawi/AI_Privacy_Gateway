@@ -68,7 +68,7 @@ class TestMaskAndDemask:
         assert res.status_code == 200
         body = res.json()
         assert "4242 4242 4242 4242" not in body["masked_text"]
-        assert "[[REDACTED]]" in body["masked_text"]
+        assert "[REDACTED:" in body["masked_text"]
         assert body["safe_to_send"] is True
         assert body["entities_found"] >= 1
 

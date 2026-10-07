@@ -10,16 +10,31 @@ Wires all routers together:
 """
 from __future__ import annotations
 
-from fastapi import FastAPI
+import threading
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.detect import router as detect_router
 from app.api.mask import router as mask_router
 from app.api.demask import router as demask_router
 from app.api.process_file import router as file_router
+from app.pipeline.engine import tier_status, warm_tier2
 from app.security.auth import get_install_token
+from app.security.origin_check import check_origin
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Load the semantic model in the background: the server answers immediately and Tier 2 is
+    # reported as "warming_up" (degraded coverage) until it is ready, instead of the first
+    # user request waiting for the model load.
+    threading.Thread(target=warm_tier2, name="tier2-warmup", daemon=True).start()
+    yield
+
 
 app = FastAPI(
+    lifespan=lifespan,
     title="PII Gateway Local Backend",
     description="Local PII detection, masking, and restoration service.",
     version="1.0.0",
@@ -47,18 +62,19 @@ app.include_router(file_router, prefix="/api", tags=["multimodal"])
 
 @app.get("/health")
 async def health():
-    """Health check — no auth required."""
-    return {"status": "ok", "service": "pii-gateway-backend", "version": "1.0.0"}
+    """Health check — no auth required. Reports tier readiness as short codes (no user data)."""
+    return {"status": "ok", "service": "pii-gateway-backend", "version": "1.0.0", "tiers": tier_status()}
 
 
 @app.get("/token")
-async def get_token():
+async def get_token(request: Request):
     """Get the install token for extension setup.
 
     This endpoint is unauthenticated because the extension needs to
     get the token before it can make authenticated requests.
     In production, this would be restricted to localhost only.
     """
+    check_origin(request)      # loopback clients only (the full extension handshake is a separate task)
     return {"token": get_install_token()}
 
 

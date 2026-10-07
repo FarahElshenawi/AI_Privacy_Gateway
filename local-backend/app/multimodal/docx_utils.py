@@ -7,7 +7,8 @@ from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 
-_RUN_XPATH = "./w:r | ./w:hyperlink/w:r | ./w:ins/w:r | ./w:smartTag/w:r"
+_RUN_XPATH = ("./w:r | ./w:hyperlink/w:r | ./w:ins/w:r | ./w:smartTag/w:r | ./w:fldSimple/w:r | "
+              "./w:sdt/w:sdtContent/w:r | ./w:customXml/w:r | ./w:moveTo/w:r | ./w:hyperlink/w:fldSimple/w:r")
 
 
 def _roots(doc):
@@ -19,6 +20,8 @@ def _roots(doc):
             section.even_page_header, section.even_page_footer,
         ):
             try:
+                if part.is_linked_to_previous:      # no own definition: don't create one just by looking
+                    continue
                 yield part._element
             except Exception:
                 continue

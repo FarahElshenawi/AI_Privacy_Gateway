@@ -1,25 +1,53 @@
 # Local Backend — Data Plane
 
-FastAPI service on `localhost:8765`. Orchestrates the tiered-hybrid pipeline
-(detection → routing → decision → masking → residual scan → demasking)
-and hosts the Mapping Vault, the system's most sensitive component.
+FastAPI service on `localhost:8765`. Runs the `dlp_core` detection engine
+(Tier 1 + Tier 2), offset-based masking, encrypted vault, and an independent
+residual scanner that fail-closes if any PII survives.
 
 ## Layout
 
 ```
-app/
-├── api/               # /detect, /mask, /demask, /process_file endpoints
-├── pipeline/          # the 5 pipeline steps
-│   ├── detection.py    # orchestrator — calls Tier 1 engine + Tier 2 semantic
-│   ├── routing.py      # entity → action (redact / faker / keep)
-│   ├── decision.py     # SLM tier (System-1 LLM, future work)
-│   ├── masking.py      # Faker substitution + vault storage + apply_pairs
-│   ├── residual_scanner.py  # independent last-gate scan (fail-closed)
-│   ├── chunker.py      # sentence-boundary chunking for long inputs
-│   └── tier1/          # deterministic detection engine (9 files)
-├── multimodal/         # file parsers + reconstructors (PDF, Word, Excel, text)
-├── vault/              # Mapping Vault: bijective, collision-checked, 24h expiry
-└── security/           # origin check + per-install token
+dlp_core/                              ← DETECTION ENGINE (pure Python, 142 tests)
+├── span.py                            # Span contract (start, end, label, score, source, validated)
+├── policy.py                          # Label → Action (REDACT / FAKER / KEEP; unknown = REDACT)
+├── merge.py                           # MergeEngine (unions overlaps, strictest action wins)
+├── masker.py                          # OffsetMasker (offset-based, no str.replace) + Demasker
+├── vault.py                           # InMemoryVault (Fernet-encrypted, HMAC-keyed, thread-safe)
+├── detection.py                      # DetectionPipeline (parallel tiers, timeouts, degraded reporting)
+├── residual_scanner.py               # Independent last-gate (checksums only, fail-closed)
+├── tier1/                            # Deterministic (regex + validators)
+│   ├── engine.py                      # Tier1Engine.scan(text) → list[Span]
+│   ├── patterns.py                    # 50+ boundary-safe regex patterns
+│   ├── validators.py                  # Luhn, mod-97, ABA, base58check, bech32, JWT, PEM
+│   ├── recognizers.py                 # Card/IBAN/AWS/Recovery/DenyTerm recognizers
+│   ├── registry.py                    # Single wiring point (add entity = one line)
+│   └── config.py                     # Tier1Config (tenant domains, deny-terms, phone switch)
+├── tier2/                            # Semantic (GLiNER2-PII)
+│   ├── engine.py                      # Tier2Engine — PyTorch + ONNX dual mode
+│   ├── config.py                     # Tier2Config (model, labels, threshold, chunking)
+│   └── export_onnx.py               # One-time ONNX export script
+└── eval/                             # Evaluation harness
+    ├── metrics.py                    # Char-level leak recall, strict/overlap F1, CI
+    ├── run.py                         # Runner (one command reproduces the report)
+    ├── make_holdout.py                # Hold-out generator (298 cases, 325 gold spans)
+    ├── holdout_v1.jsonl               # Frozen hold-out (tamper-checked)
+    └── report.json                    # Tier 1 baseline (0.974 leak recall)
+
+app/                                   ← FASTAPI LAYER (thin wrappers around dlp_core)
+├── api/                              # HTTP endpoints
+│   ├── mask.py                        # POST /api/mask → DetectionPipeline → OffsetMasker → scan
+│   ├── demask.py                     # POST /api/demask → Demasker
+│   ├── detect.py                     # POST /api/detect → DetectionPipeline (no masking)
+│   └── process_file.py               # POST /api/process_file → multimodal → Pipeline
+├── pipeline/
+│   ├── engine.py                     # Shared singleton: wires dlp_core for FastAPI
+│   ├── chunker.py                    # Sentence-boundary chunking (for Tier 2 long text)
+│   └── decision.py                  # SLM adjudication stub (fail-closed: redacts)
+├── multimodal/                       # File parsers + reconstructors
+│   ├── pipeline.py                   # extract → detect → mask → reconstruct
+│   ├── parsers/                      # PDF, Word, Excel, text
+│   └── reconstructors/               # offset-based per format
+└── security/                         # Per-install token, origin check
 ```
 
 ## Quickstart
@@ -27,14 +55,14 @@ app/
 ```bash
 cd local-backend
 
-# Install dependencies
+# Install dependencies (includes gliner2, torch, transformers for Tier 2)
 pip install -r requirements.txt
 
 # Start the backend
 uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
-Verify it's running:
+Verify:
 ```bash
 curl http://127.0.0.1:8765/health
 # → {"status":"ok","service":"pii-gateway-backend","version":"1.0.0"}
@@ -44,188 +72,212 @@ curl http://127.0.0.1:8765/health
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/mask` | POST | Detect + mask PII in text. Returns `masked_text`, `entity_types`, `entities_found`, `leaks`, `safe_to_send`. |
+| `/api/mask` | POST | Detect + mask PII. Returns `masked_text`, `entity_types`, `safe_to_send`, `degraded`. |
 | `/api/demask` | POST | Restore real values in LLM response using vault. |
-| `/api/detect` | POST | Detect PII only (no masking). Returns entities. |
+| `/api/detect` | POST | Detect PII only (no masking). Returns spans with offsets. |
 | `/api/process_file` | POST | Process a file upload (extract → mask → reconstruct). |
 | `/health` | GET | Health check (no auth). |
-| `/token` | GET | Get per-install token (for extension setup). |
+| `/token` | GET | Get per-install token. |
 
-### Mask endpoint example
+### Mask endpoint
 
 ```bash
 curl -X POST http://127.0.0.1:8765/api/mask \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"text": "My card is 4242424242424242, email sarah@example.com", "conversation_id": "chat_123"}'
+  -d '{"text": "My name is Farah Ahmed, card 4242424242424242", "conversation_id": "chat_123"}'
 ```
 
 Response:
 ```json
 {
-  "masked_text": "My card is [[REDACTED]], email robertsjennifer@example.com",
+  "masked_text": "My name is [FAKE NAME], card [REDACTED:CREDIT_CARD]",
   "entities_found": 2,
-  "entity_types": ["CREDIT_CARD", "EMAIL"],
+  "entity_types": ["CREDIT_CARD", "PERSON"],
   "leaks": [],
-  "safe_to_send": true
+  "safe_to_send": true,
+  "degraded": false,
+  "blocked": false
 }
 ```
 
-> **Privacy:** The response does NOT include `pairs` (which contain real values).
-> The extension applies masks per-slot using `masked_text` directly.
+- `degraded: true` → Tier 2 (GLiNER) failed/timed out; names not detected. Send with warning.
+- `blocked: true` → Tier 1 (critical) failed. Do NOT send.
 
 ## Detection Engine
 
-The detection engine is the core of the system — it identifies what PII exists
-in a prompt or file before masking happens. It uses a **tiered hybrid architecture**:
+### Architecture
 
 ```
-Input text
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Tier 1 — Deterministic (regex + checksums)                │
-│  ComplianceValidatorEngine (app/pipeline/tier1/)           │
-│  24 entity types · ~0ms latency · ~100% precision          │
-└─────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Tier 2 — Semantic (GLiNER2-PII via ONNX)                  │
-│  Person names, organizations, locations                     │
-│  TODO: model not yet integrated (M4 milestone)             │
-└─────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Merge & Conflict Resolution                                │
-│  Overlap resolution: prefer longer match, drop contained   │
-│  Duplicate collapse: same span+label → keep best score      │
-└─────────────────────────────────────────────────────────────┘
-    │
-    ▼
-  list[Entity]
+                           text
+                             │
+                 ┌───────────┼───────────┐
+                 ▼           ▼           ▼
+            ┌─────────┐ ┌─────────┐
+            │ Tier 1  │ │ Tier 2  │
+            │ regex   │ │ GLiNER2 │
+            │ 24 types│ │ 17 types│
+            │~1ms/KB  │ │~50-200ms│
+            └────┬────┘ └────┬────┘
+                 │           │
+                 └─────┬─────┘
+                       ▼
+              ┌─────────────────┐
+              │  MergeEngine    │  unions overlaps, strictest action wins
+              └────────┬────────┘
+                       │
+                       ▼
+              ┌─────────────────┐
+              │  OffsetMasker   │  offset-based, never str.replace
+              │  + Vault        │  Fernet-encrypted fake↔real
+              └────────┬────────┘
+                       │
+                       ▼
+              ┌─────────────────┐
+              │ ResidualScanner │  independent, checksums only, fail-closed
+              └────────┬────────┘
+                       │
+                       ▼
+              masked_text + safe_to_send + degraded
 ```
 
-### Tier 1 — Deterministic (`app/pipeline/tier1/`)
+### Tier 1 — Deterministic (`dlp_core/tier1/`)
 
-The deterministic tier catches **structured PII** — anything with a recognizable
-format or checksum. It runs first, always, on every input.
+Catches **structured PII** with regex patterns + mathematical validators.
+Runs first, always, on every input. ~1ms per KB.
 
-**Architecture:**
+**24 entity types:**
 
-```
-tier1/
-├── engine.py          # ComplianceValidatorEngine — entry point
-├── patterns.py        # 50 boundary-safe regex patterns (data only)
-├── validators.py      # Mathematical validators (Luhn, mod-97, ABA, etc.)
-├── recognizers.py      # Glue: pattern → validator → Span
-├── registry.py         # Single wiring point (add entities here)
-├── normalizer.py       # NFKC + zero-width removal + offset map
-├── config.py           # EngineConfig (internal suffixes, etc.)
-├── types.py            # Span dataclass
-└── __init__.py
-```
+| Category | Types | Validator |
+|----------|-------|-----------|
+| Payment (PCI-DSS) | `CREDIT_CARD`, `CVV`, `CARD_EXPIRY` | Luhn + issuer brand |
+| Banking | `IBAN`, `SWIFT_BIC`, `ABA_ROUTING`, `BANK_ACCOUNT_NUMBER` | mod-97, 3-7-1 mod-10 |
+| Crypto | `CRYPTO_WALLET` | base58check, bech32 |
+| Government/Health (HIPAA) | `US_SSN`, `TAX_ID`, `MEDICAL_RECORD_NUMBER`, `HEALTH_INSURANCE_ID` | SSN rules, EIN prefix |
+| Contact | `EMAIL`, `PHONE_NUMBER` | RFC 5322, E.164/NANP (cue-anchored) |
+| Network (SOC2) | `IP_ADDRESS`, `INTERNAL_URL`, `INTERNAL_HOSTNAME` | ipaddress, tenant config |
+| Secrets (SOC2 CC6) | `API_KEY`, `AUTH_TOKEN`, `PRIVATE_KEY`, `CLOUD_SECRET`, `CONNECTION_STRING`, `PASSWORD`, `RECOVERY_CODE` | Prefix + entropy, JWT, PEM, Shannon |
 
-**Design rules:**
+**Eval baseline (frozen hold-out, 298 cases):**
+- Character-level leak recall: **0.974**
+- Strict F1: **0.975**
+- Benign false positives: **1/40**
+- P95 latency: **0.45ms**
 
-1. **Loose patterns, strict validators.** The regex finds *candidates*; the
-   validator confirms whether a candidate is real. This keeps harmless numbers
-   from being masked (e.g., a 16-digit order ID won't match unless it passes Luhn).
+### Tier 2 — Semantic (`dlp_core/tier2/`)
 
-2. **Boundary-safe lookarounds.** Every pattern uses `(?<!\d)` and `(?!\d)` —
-   not just `\b` — to prevent matching inside longer numbers. This stops the
-   overlapping-span bug where a CVV matches inside a card number.
+Uses **GLiNER2-PII** (`fastino/gliner2-privacy-filter-PII-multi`, 205M params)
+for context-dependent PII that Tier 1 can't catch.
 
-3. **Keyword-anchored ambiguity.** Entities like CVV (3-4 digits) and expiry
-   dates (MM/YY) are too short to match standalone — they require a keyword
-   like `cvv:` or `exp:` nearby, OR adjacency to a validated card number.
+**17 semantic labels:**
 
-4. **Obfuscation defense.** The normalizer strips zero-width characters,
-   converts fullwidth digits to ASCII, and folds en-dashes to hyphens —
-   then maps all spans back to original offsets so masking edits the real text.
+| GLiNER label | Our label | Routing |
+|---|---|---|
+| person, full_name, first_name, last_name | `PERSON` | FAKER |
+| date_of_birth | `DATE_OF_BIRTH` | FAKER |
+| address, street_address | `ADDRESS` | FAKER |
+| city, state_or_region, postal_code, country | `LOCATION` | FAKER |
+| username | `USERNAME` | FAKER |
+| password, secret | `PASSWORD` / `SECRET` | REDACT |
+| government_id, passport_number, drivers_license_number | `GOVERNMENT_ID` etc. | REDACT |
+| sensitive_date | `SENSITIVE_DATE` | FAKER |
 
-**24 entity types detected:**
+**Two inference modes:**
 
-| Category | Entity types | Validator |
-|----------|-------------|-----------|
-| **Payment (PCI-DSS)** | `CREDIT_CARD`, `CVV`, `CARD_EXPIRY` | Luhn + issuer brand, keyword-anchored |
-| **Banking** | `IBAN`, `SWIFT_BIC`, `ABA_ROUTING`, `BANK_ACCOUNT_NUMBER` | mod-97, ISO country, 3-7-1 mod-10, plausibility |
-| **Crypto** | `CRYPTO_WALLET` | base58check (Bitcoin), bech32 (segwit), 0x prefix (ETH) |
-| **Government / Health (HIPAA)** | `US_SSN`, `TAX_ID`, `MEDICAL_RECORD_NUMBER`, `HEALTH_INSURANCE_ID` | SSN area/group rules, EIN prefix, plausibility |
-| **Contact** | `EMAIL`, `PHONE_NUMBER` | RFC 5322 + TLD, E.164 / NANP plausibility |
-| **Network (SOC2)** | `IP_ADDRESS`, `INTERNAL_URL`, `INTERNAL_HOSTNAME` | ipaddress module, internal suffix list |
-| **Secrets (SOC2 CC6)** | `API_KEY`, `AUTH_TOKEN`, `PRIVATE_KEY`, `CLOUD_SECRET`, `CONNECTION_STRING`, `PASSWORD`, `RECOVERY_CODE` | Prefix + entropy, JWT structure, PEM base64, Shannon entropy |
+| Mode | How | Speed | Setup |
+|------|-----|-------|-------|
+| **PyTorch** (default) | `GLiNER2.from_pretrained()` + `extract_entities_long()` | ~50-200ms | `pip install gliner2 torch transformers` |
+| **ONNX** (optional) | `onnxruntime.InferenceSession()` | 2-4x faster | Run export first (see below) |
 
-**Validators (mathematical):**
-
-| Validator | What it checks | Used for |
-|-----------|---------------|----------|
-| Luhn | mod-10 checksum on digits | Credit cards |
-| mod-97 | IBAN international checksum | IBAN |
-| ABA 3-7-1 | US routing number checksum | ABA routing |
-| base58check | Bitcoin address checksum | BTC wallets |
-| bech32 | Bitcoin segwit checksum | Bech32 wallets |
-| JWT structure | 3 base64url segments, `alg` in header | JWT tokens |
-| PEM structure | base64 body between BEGIN/END | Private keys |
-| Shannon entropy | bits/char ≥ threshold | Secrets, API keys |
-| Placeholder rejection | `xxxx`, `****`, `your_key` | Prevents masking config |
-| Reference rejection | `process.env.X`, `os.getenv` | Prevents masking code |
-
-**Cleanup passes (overlap resolution):**
-
-1. **Exact-duplicate collapse** — same start/end/label keeps the best score
-2. **Numeric containment** — a CVV/expiry/phone inside a validated card/IBAN/key is dropped
-3. **CVV vs date mutual exclusion** — a span can't be both; keep the stronger one
-
-### Tier 2 — Semantic (GLiNER2-PII)
-
-**Status:** Not yet integrated (M4 milestone). The integration point exists in
-`detection.py` (`_detect_semantic` + `_run_gliner_inference`) but the ONNX
-model is not loaded.
-
-**Planned:** GLiNER2-PII via ONNX runtime, label-conditioned inference
-(`PERSON`, `ORGANIZATION`, `LOCATION`), with sentence-boundary chunking for
-inputs longer than 512 tokens (handled by `chunker.py`).
-
-### Merge & Conflict Resolution
-
-The merge step is currently in `detection.py` (simple: deduplicate, sort by
-start offset, prefer longer match). A dedicated `merge_engine.py` with
-per-label confidence thresholds and fuzz testing is planned (Phase 3 of the
-detection action plan).
-
-## Masking Pipeline
-
-After detection, entities flow through:
-
-```
-entities → routing.py (redact/faker/keep) → masking.py → vault → masked output
+**ONNX export (one-time):**
+```bash
+python -m dlp_core.tier2.export_onnx
+# Creates: models/gliner2_pii.onnx
 ```
 
-**Routing rules:**
+Then set the env variable or hardcode the path in `app/pipeline/engine.py`:
+```bash
+export GLINER_ONNX_PATH=models/gliner2_pii.onnx
+```
 
-| Action | When | Examples |
-|--------|------|----------|
-| `redact` | Secrets and financial IDs (can't be faked — checksums would break) | Cards, API keys, IBANs, SSNs, private keys |
-| `faker` | Identity PII (realistic surrogate is safer than redaction) | Names, emails, phones, organizations |
-| `keep` | Non-PII infrastructure | Public IPs, public URLs |
+**Threshold:** 0.3 (low = high recall). DLP prioritizes recall — missed PII = data leak.
 
-**Vault:** Per-conversation, bijective, 24h TTL. Same real value → same fake
-within a conversation. Cross-conversation, same real value → different fakes
-(no fingerprinting).
+**Chunking:** GLiNER2's `extract_entities_long()` handles texts > 384 tokens
+with built-in chunking (chunk_size=384, overlap=64).
 
-## Residual Scanner
+**Failure handling:** Non-critical. If GLiNER fails to load or times out,
+`DetectionResult.degraded = True` and the pipeline continues with Tier 1 only.
+The API response includes `degraded: true` so the extension can warn the user.
 
-The last gate before send. Runs deterministic checks on the **masked output**
-to catch anything the detection pipeline missed. It is **independent** of the
-primary detector — does not share code. If it finds any structured PII
-(cards, keys, JWTs, IBANs), the request is **fail-closed** (blocked).
+### Merge Engine (`dlp_core/merge.py`)
+
+All tiers emit `Span` objects. The MergeEngine:
+
+1. **Unions overlaps** — never drops a span (fixes the partial-overlap leak)
+2. **Strictest action wins** — `REDACT > FAKER > KEEP`
+3. **Evidence ranks** — `VALIDATED > CONTEXT > MODEL`, then score, then length
+4. **Word-boundary snapping** — widens partial detections to whole tokens
+5. **Fuzz-tested** — 300 random inputs prove the coverage invariant
+
+### Offset Masker (`dlp_core/masker.py`)
+
+Masks by **character offset**, never by `str.replace`:
+
+1. Sort spans, replace **right-to-left** in one pass
+2. Replacement text is never re-scanned (no cascading replacement)
+3. "John" never corrupts "Johnson" — only flagged offsets are touched
+4. FAKER spans that can't find a collision-free fake degrade to REDACT
+5. `MaskResult` contains no real values — they go only to the sealed vault
+
+### Vault (`dlp_core/vault.py`)
+
+- **Fernet-encrypted** — real values stored as AES-128-CBC + HMAC tokens
+- **HMAC-keyed reverse index** — no plaintext, no brute-forceable hash
+- **Bijective** — both directions enforced (real→fake and fake→real)
+- **Per-conversation** — same person gets same fake within a chat; different fakes across chats
+- **24h TTL** — entries expire and are lazily purged
+- **Thread-safe** — RLock on all operations
+
+### Residual Scanner (`dlp_core/residual_scanner.py`)
+
+Independent last gate — shares **no patterns** with Tier 1. Scans masked
+output for surviving PII with hard checksums only:
+
+- Luhn-valid credit cards
+- mod-97 valid IBANs
+- JWT structure (3 segments + `alg` field)
+- API key prefixes (AKIA, sk-, ghp_, AIza, xox)
+- PEM blocks (private keys)
+
+Does NOT scan for emails/phones — Faker surrogates also match those patterns.
+If any finding is returned, `safe_to_send = False` (fail-closed).
+
+## DetectionPipeline (`dlp_core/detection.py`)
+
+Runs all tiers in **parallel** with per-tier timeouts:
+
+```python
+pipe = DetectionPipeline([
+    DetectorSpec(Tier1Engine(), critical=True, timeout_s=0.5),
+    DetectorSpec(Tier2Engine(), critical=False, timeout_s=5.0),
+])
+result = pipe.run(text)
+# result.merged          → disjoint spans to mask
+# result.blocked         → True if critical detector failed (do NOT send)
+# result.degraded        → True if any detector didn't complete (send with warning)
+# result.uncovered_labels → labels nobody checked (e.g. PERSON while Tier 2 is down)
+```
+
+**Fail-closed rules:**
+- Tier 1 failure → `blocked = True` (request blocked)
+- Tier 2 failure → `degraded = True` (request sent with warning)
+- Timeout → detector abandoned, reported as `TIMEOUT`
+- Exception → only class name in report (no user text in error messages)
+- Stuck detector → remembered, prevents thread pile-up
 
 ## Multimodal Pipeline
 
-Extracts text from files, runs detection + masking, and reconstructs the file
-in place — preserving layout, fonts, images, and formatting.
+Extracts text from files, runs detection + masking, reconstructs in place.
 
 | Format | Parse | Reconstruct |
 |--------|-------|-------------|
@@ -242,36 +294,62 @@ silently passed through.
 ```bash
 cd local-backend
 pip install -r requirements.txt
-pytest tests/ -v
+pytest dlp_core/ tests/ -v
 ```
 
 ```
-149 passed, 1 skipped (3.6s)
+142 passed in 3.2s
 ```
 
-| Test file | What it covers |
-|-----------|---------------|
-| `test_deterministic.py` | Tier 1 engine: cards, API keys, JWT, IBAN, email, phone, IP, SSN, crypto, overlap resolution |
-| `test_masking.py` | Faker substitution, vault reuse, redaction, routing coverage |
-| `test_residual_scanner.py` | Independent last-gate: cards, JWTs, API keys, IBANs, entropy |
-| `test_vault_bijective.py` | Bijective mapping, collision detection, expiry, persistence |
-| `test_chunker.py` | Sentence-boundary chunking, overlap, offset remapping |
-| `test_multimodal_pipeline.py` | PDF, Word, Excel, text — extract + mask + reconstruct |
-| `test_pdf_reconstructor.py` | In-place PDF redaction preserving layout |
-| `test_file_type_detector.py` | File type detection by extension + magic bytes |
-| `test_security.py` | Token verification, origin check |
-| `test_api.py` | API endpoint integration tests |
+| Test file | Tests | What it covers |
+|-----------|-------|----------------|
+| `dlp_core/test_core.py` | 35 | Merge invariants, offset masking, vault bijection, fuzz |
+| `dlp_core/tier1/test_tier1.py` | 48 | All 24 entity types, boundary safety, obfuscation, adversarial input |
+| `dlp_core/test_detection.py` | 11 | Pipeline: timeout, stuck detector, concurrency, fail-closed |
+| `dlp_core/eval/test_eval.py` | 4 | Harness: metrics on hand-made cases |
+| `tests/test_api.py` | 10 | API endpoint integration |
+| `tests/test_chunker.py` | 18 | Sentence-boundary chunking |
+| `tests/test_security.py` | 15 | Token verification, origin check |
+| `tests/test_pdf_reconstructor.py` | 1 | PDF in-place redaction |
 
 ## Configuration
 
-```python
-from app.pipeline.tier1 import EngineConfig
+### Tier 1
 
-config = EngineConfig(
+```python
+from dlp_core.tier1 import Tier1Config
+
+config = Tier1Config(
     internal_suffixes=("internal", "intranet", "corp", "lan", "local"),
-    tenant_domains=("corp.acme.com",),  # tenant-specific internal domains
-    ignore_loopback_ips=True,             # 127.0.0.1, ::1 are harmless
-    private_ip_label="IP_ADDRESS",        # or "INTERNAL_HOSTNAME" to route RFC1918 as infra
-    max_text_len=2_000_000,               # chunk larger inputs
+    tenant_domains=("corp.acme.com",),   # tenant-specific internal domains
+    deny_terms=("Project Falcon",),      # words that must never leave
+    ignore_loopback_ips=True,
+    emit_uncued_phones=False,             # Tier 2 handles uncued phones
 )
+```
+
+### Tier 2
+
+```python
+from dlp_core.tier2 import Tier2Config
+
+config = Tier2Config(
+    model_name="fastino/gliner2-privacy-filter-PII-multi",
+    threshold=0.3,                        # low = high recall
+    use_onnx=False,                       # True after running export_onnx.py
+    onnx_path=None,                       # "models/gliner2_pii.onnx"
+    chunk_size=384,                       # GLiNER2 token window
+    chunk_overlap=64,
+    enabled=True,
+)
+```
+
+### Policy (label → action)
+
+```python
+from dlp_core import Policy, Action
+
+policy = Policy(default=Action.REDACT)  # unknown labels = REDACT (fail-closed)
+# Override per tenant:
+policy = policy.with_overrides(IP_ADDRESS=Action.REDACT)  # redact all IPs
 ```

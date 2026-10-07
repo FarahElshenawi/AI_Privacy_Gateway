@@ -39,3 +39,7 @@ cloud-backend/**/*.db
 cloud-backend/**/*.db
 *.db
 local-backend/eval/eval_set_v2.jsonl
+local-backend/eval/*
+
+local-backend/models/*.onnx
+local-backend/models/*.onnx.data

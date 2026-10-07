@@ -1,13 +1,19 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
 pydantic>=2.8
-onnxruntime>=1.19
-sqlalchemy>=2.0
-pytest>=8.0
-httpx>=0.27
 python-multipart>=0.0.9
 faker>=25.0
-pdfplumber>=0.11
 pymupdf>=1.24
 python-docx>=1.1
 openpyxl>=3.1
+cryptography>=42.0
+
+# Tier 2: GLiNER2-PII semantic detection
+gliner2>=2.0.0
+torch>=2.5.1
+transformers>=5.2
+sentence-transformers>=3.0
+
+# Dev/test
+pytest>=8.0
+httpx>=0.27
