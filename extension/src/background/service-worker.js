@@ -1,31 +1,33 @@
 /**
  * Doppel — AI Privacy Gateway
- * Service Worker v2.2 — chrome.debugger + CDP Fetch domain
+ * Service Worker v2.3 — chrome.debugger + CDP Fetch domain
  *
- * Intercepts ChatGPT requests at the network layer (below the page, its
- * service workers and workers) and rewrites them with PII masked by the
- * local backend.
+ * Intercepts ChatGPT / Gemini requests at the network layer (below the page)
+ * and rewrites them with PII masked by the local backend.
  *
  * DESIGN RULES
  * ============
- * 1. FAIL CLOSED. Any request we classify as sensitive (message send, file
- *    bytes, file reservation) is blocked unless we positively obtained the
- *    body, masked it, and verified the result. Retrieval failure, backend
- *    failure, timeout, residual leak, unexpected exception → failRequest.
- * 2. NEVER LOG USER CONTENT. Logs contain sizes, counts and entity TYPES only —
- *    never message text, filenames, real values or pairs.
- * 3. TYPES COME FROM THE BACKEND (`entity_types`), never from `pairs`
- *    (which hold the real values).
+ * 1. FAIL CLOSED. Any request we classify as sensitive (message send, prompt
+ *    draft, file bytes, file reservation) is blocked unless we positively
+ *    obtained the body, masked it, and verified the result. Retrieval
+ *    failure, backend failure, timeout, residual leak, unexpected exception,
+ *    unsupported upload shape → failRequest.
+ * 2. NEVER LOG USER CONTENT. Logs contain sizes, counts and entity TYPES only.
+ * 3. TYPES COME FROM THE BACKEND (`entity_types`), never from `pairs`.
  *
- * Responses are NOT demasked: the user sees surrogate values / [[REDACTED]]
- * in ChatGPT's answers.
+ * Covered: prompt text (send + prepare), attachment names, and file bytes for
+ * PDF / Word / Excel / text via ChatGPT (reserve → blob PUT) and Gemini
+ * (multipart and resumable "start" → "upload, finalize").
+ *
+ * Responses are NOT demasked: the user sees surrogate values in answers.
  */
 
 import {
   bytesToBase64, base64ToBytes, concatBytes,
-  collectUserTextSlots, collectAttachmentNameSlots,
-  countResidualOriginals, sniffExtension, splitFilename,
+  collectUserTextSlots, collectAttachmentNameSlots, collectPrepareSlots,
+  countResidualOriginals, fixFilename, splitFilename, convIdFromUrl, describeBackendError,
   parseGeminiBody, collectGeminiSlots, buildGeminiBody, geminiConversationId,
+  parseGeminiStartName, buildGeminiStartBody,
   parseMultipart, buildMultipart, boundaryFromContentType,
 } from "./body.js";
 
@@ -36,9 +38,16 @@ const MAX_ACTIVITY = 20;
 const MASK_TIMEOUT_MS = 15000;
 const FILE_TIMEOUT_MS = 90000;
 
+// Narrow patterns: only pause requests that can carry user content. Every
+// paused request costs a round-trip through this worker, so don't pause
+// /backend-api/me, /models, /conversations, telemetry, etc.
 const FETCH_PATTERNS = [
-  "*://chatgpt.com/backend-api/*",
-  "*://chat.openai.com/backend-api/*",
+  "*://chatgpt.com/backend-api/conversation",
+  "*://chatgpt.com/backend-api/f/conversation*",
+  "*://chatgpt.com/backend-api/files*",
+  "*://chat.openai.com/backend-api/conversation",
+  "*://chat.openai.com/backend-api/f/conversation*",
+  "*://chat.openai.com/backend-api/files*",
   "*://*.oaiusercontent.com/*",
   "*://*.blob.core.windows.net/*",
   // Gemini
@@ -49,13 +58,11 @@ const FETCH_PATTERNS = [
 
 const SESSION_KEY_VAULT_IDS = "vaultIdByConv";
 
-// tabId → true once Fetch is enabled
 const attachedTabs = new Set();
 const attaching = new Map();            // tabId → in-flight attach promise
-// tabId → FIFO of (masked) filenames seen in upload reservations
-const reservedNames = new Map();
-// tabId → vault id used while the chat has no server-side conversation id yet
-const pendingVaultId = new Map();
+const reservedNames = new Map();        // tabId → FIFO of masked ChatGPT upload filenames
+const geminiUploads = new Map();        // tabId → FIFO of { name, type } from resumable "start"
+const pendingVaultId = new Map();       // tabId → vault id while the chat has no server id yet
 
 const isChatGPTUrl = (u) => !!u && (/^https:\/\/(chatgpt\.com|chat\.openai\.com|gemini\.google\.com)\//.test(u));
 const GEMINI_UPLOAD_HOSTS = new Set(["content-push.googleapis.com", "push.clients6.google.com"]);
@@ -63,6 +70,7 @@ const getHeader = (headers, name) => {
   const k = Object.keys(headers || {}).find((h) => h.toLowerCase() === name);
   return k ? headers[k] : undefined;
 };
+const encodeJson = (obj) => bytesToBase64(new TextEncoder().encode(JSON.stringify(obj)));
 
 // ─────────────────────────────────────────────────────────
 // Backend access
@@ -95,38 +103,83 @@ async function getToken() {
   return null;
 }
 
+/** Error whose message is already a short, content-free, user-facing reason. */
+class BackendError extends Error {
+  constructor(message, status) { super(message); this.status = status; }
+}
+
+/**
+ * POST to the backend with the install token. If the backend rejects the token
+ * (401 — e.g. ~/.pii_gateway_token.json was regenerated), drop the cached token,
+ * fetch a fresh one and retry ONCE. `makeInit` is a function so the body
+ * (FormData) is rebuilt for the retry.
+ */
+async function backendPost(path, makeInit, timeoutMs) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = await getToken();
+    const init = makeInit();
+    init.method = "POST";
+    init.headers = { ...(init.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+    let resp;
+    try {
+      resp = await fetchWithTimeout(`${BACKEND_URL}${path}`, init, timeoutMs);
+    } catch (e) {
+      throw new BackendError(e.name === "AbortError" ? "Local backend timed out" : "Local backend unreachable");
+    }
+    if (resp.status === 401 && attempt === 0) {
+      await chrome.storage.local.remove(TOKEN_KEY);
+      continue;
+    }
+    return resp;
+  }
+  throw new BackendError("Backend rejected the token", 401);
+}
+
 async function maskViaBackend(text, conversationId) {
-  const token = await getToken();
-  const headers = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  const resp = await fetchWithTimeout(`${BACKEND_URL}/api/mask`, {
-    method: "POST",
-    headers,
+  const resp = await backendPost("/api/mask", () => ({
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, conversation_id: conversationId }),
-  }, MASK_TIMEOUT_MS);
-  if (!resp.ok) throw new Error(`backend ${resp.status}`);
+  }), MASK_TIMEOUT_MS);
+  if (!resp.ok) throw new BackendError(describeBackendError(resp.status, null, "text"), resp.status);
   return resp.json();
 }
 
+/**
+ * Mask a file via /api/process_file. Returns the masked bytes plus the coverage
+ * headers the backend sets (X-DLP-*). On failure the backend answers 4xx/5xx
+ * with a JSON `detail` of machine codes (blockers / leak types) — surfaced as
+ * the block reason so the user can see WHY a file was refused.
+ */
 async function maskFileViaBackend(fileBytes, filename, contentType, conversationId) {
-  const token = await getToken();
-  const form = new FormData();
-  form.append("file", new Blob([fileBytes], { type: contentType || "application/octet-stream" }), filename);
-  form.append("conversation_id", conversationId);
-  const resp = await fetchWithTimeout(`${BACKEND_URL}/api/process_file`, {
-    method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: form,
+  const resp = await backendPost("/api/process_file", () => {
+    const form = new FormData();
+    form.append("file", new Blob([fileBytes], { type: contentType || "application/octet-stream" }), filename);
+    form.append("conversation_id", conversationId);
+    return { body: form };
   }, FILE_TIMEOUT_MS);
-  if (!resp.ok) throw new Error(`backend ${resp.status}`);
-  return new Uint8Array(await resp.arrayBuffer());
+  if (!resp.ok) {
+    let detail = null;
+    try { detail = (await resp.json()).detail; } catch { /* not JSON */ }
+    throw new BackendError(describeBackendError(resp.status, detail, "file"), resp.status);
+  }
+  const csv = (h) => (resp.headers.get(h) || "").split(",").map((s) => s.trim()).filter(Boolean);
+  return {
+    bytes: new Uint8Array(await resp.arrayBuffer()),
+    degraded: resp.headers.get("X-DLP-Degraded") === "true",
+    uncovered: csv("X-DLP-Uncovered-Labels"),
+    warnings: csv("X-DLP-Warnings"),
+    replacements: parseInt(resp.headers.get("X-DLP-Replacements") || "0", 10) || 0,
+  };
 }
+
+const coverageNote = (labels) =>
+  labels && labels.length ? `partial coverage — not checked: ${labels.join(", ")}` : "partial coverage";
 
 // ─────────────────────────────────────────────────────────
 // Activity log (no user content — types/counts only)
 // ─────────────────────────────────────────────────────────
 
-let logChain = Promise.resolve(); // serialize read-modify-write on storage
+let logChain = Promise.resolve();
 function logActivity(type, details = {}) {
   logChain = logChain.then(() => doLogActivity(type, details)).catch(() => {});
   return logChain;
@@ -162,16 +215,23 @@ async function doLogActivity(type, details) {
 }
 
 // ─────────────────────────────────────────────────────────
-// Vault id: stable per ChatGPT conversation
+// Vault id: stable per conversation (shared by prompts AND files)
 // ─────────────────────────────────────────────────────────
 
+async function tabConvId(tabId) {
+  try { return convIdFromUrl((await chrome.tabs.get(tabId)).url); } catch { return null; }
+}
+
 async function resolveVaultId(tabId, serverConvId) {
+  // File uploads carry no conversation id in their bodies; the tab URL does
+  // (/c/<id>, /app/<id>). Without this, a file uploaded into an existing chat
+  // got a different vault than the prompts → inconsistent surrogates.
+  serverConvId = serverConvId || await tabConvId(tabId);
   const store = (await chrome.storage.session.get(SESSION_KEY_VAULT_IDS))[SESSION_KEY_VAULT_IDS] || {};
   let id;
   if (serverConvId) {
     id = store[serverConvId];
     if (!id) {
-      // First message of a new chat was masked under a pending id: keep using it.
       id = pendingVaultId.get(tabId) || `conv_${serverConvId}`;
       pendingVaultId.delete(tabId);
       store[serverConvId] = id;
@@ -188,7 +248,7 @@ async function resolveVaultId(tabId, serverConvId) {
 }
 
 // ─────────────────────────────────────────────────────────
-// Diagnostics (content-free): what we saw and what we did, shown in the popup
+// Diagnostics (content-free)
 // ─────────────────────────────────────────────────────────
 
 let traceChain = Promise.resolve();
@@ -224,48 +284,71 @@ async function block(source, requestId, reason, entityTypes = [], entityCount = 
 
 /**
  * Get the request body as bytes. Returns null when the request has no body.
- * THROWS if a body exists but cannot be retrieved (caller must fail closed).
+ * THROWS if a body exists but cannot be retrieved faithfully (caller fails closed).
+ *
+ * Why this is stricter than before:
+ *  - A File/Blob-backed body (what the browser uses for uploads) shows up in
+ *    `postDataEntries` WITHOUT `bytes`. Treating that as "empty" let the whole
+ *    file go out unmasked (fail-open). Such entries now force getRequestPostData.
+ *  - `request.postData` is a UTF-8 *string*; for binary (PDF/docx/xlsx) it is
+ *    lossy (U+FFFD). Lossy strings are never trusted.
  */
 async function getRequestBody(source, params) {
   const { request, networkId } = params;
+  const entries = request.postDataEntries;
 
-  if (Array.isArray(request.postDataEntries) && request.postDataEntries.length) {
-    // Newer Chrome: base64 chunks, binary-safe.
-    return concatBytes(request.postDataEntries.map((e) => base64ToBytes(e.bytes || "")));
-  }
-  if (typeof request.postData === "string") {
+  if (Array.isArray(entries) && entries.length) {
+    if (entries.every((e) => typeof e.bytes === "string")) {
+      return concatBytes(entries.map((e) => base64ToBytes(e.bytes)));
+    }
+    // blob/file-backed entry without inline bytes → fall through to getRequestPostData
+  } else if (typeof request.postData === "string" && !request.postData.includes("�")) {
     return new TextEncoder().encode(request.postData);
+  } else if (!request.hasPostData && typeof request.postData !== "string") {
+    return null;
   }
-  if (!request.hasPostData) return null;
 
   if (!networkId) throw new Error("body not inlined and no networkId");
   const res = await chrome.debugger.sendCommand(source, "Network.getRequestPostData", {
     requestId: networkId,
   });
   if (!res || typeof res.postData !== "string") throw new Error("empty getRequestPostData result");
-  return res.base64Encoded ? base64ToBytes(res.postData) : new TextEncoder().encode(res.postData);
+  if (res.base64Encoded) return base64ToBytes(res.postData);
+  if (res.postData.includes("�")) throw new Error("binary body not retrievable losslessly");
+  return new TextEncoder().encode(res.postData);
 }
 
 // ─────────────────────────────────────────────────────────
 // Request classification
 // ─────────────────────────────────────────────────────────
 
+const AZURE_SAFE_COMPS = new Set(["blocklist", "properties", "metadata", "lease", "list"]);
+const AZURE_CHUNK_COMPS = new Set(["block", "appendblock", "page"]);
+
 function classify(request, urlObj) {
   const path = urlObj.pathname.replace(/\/+$/, "");
   const method = request.method;
-  // Only the real send endpoints. NOT /conversation/init, /f/conversation/prepare,
-  // /conversations, /conversation/{id}/... (no user text, or not a send).
+  const host = urlObj.hostname;
+
   if (method === "POST" && (path === "/backend-api/conversation" || path === "/backend-api/f/conversation")) {
     return "send";
   }
+  // The composer sends the draft prompt text here (partial_query) BEFORE the real send.
+  if (method === "POST" && path === "/backend-api/f/conversation/prepare") return "prepare";
+
   if ((method === "PUT" || method === "POST") &&
-      (urlObj.hostname.endsWith(".oaiusercontent.com") || urlObj.hostname.endsWith(".blob.core.windows.net"))) {
+      (host.endsWith(".oaiusercontent.com") || host.endsWith(".blob.core.windows.net"))) {
+    const comp = urlObj.searchParams.get("comp");
+    if (comp && AZURE_SAFE_COMPS.has(comp)) return null;       // metadata-only Azure calls
+    if (comp && AZURE_CHUNK_COMPS.has(comp)) return "file-chunk"; // partial bytes → can't mask
     return "file-put";
   }
-  if (method === "POST" && /^\/backend-api\/files(\/upload_reservations)?$/.test(path)) return "file-reserve";
-  if (method === "POST" && urlObj.hostname === "gemini.google.com" &&
+  if (method === "POST" &&
+      /^\/backend-api\/files(\/upload_reservations|\/process_upload_stream)?$/.test(path)) return "file-reserve";
+
+  if (method === "POST" && host === "gemini.google.com" &&
       path.endsWith("BardFrontendService/StreamGenerate")) return "gemini-send";
-  if ((method === "POST" || method === "PUT") && GEMINI_UPLOAD_HOSTS.has(urlObj.hostname)) return "gemini-upload";
+  if ((method === "POST" || method === "PUT") && GEMINI_UPLOAD_HOSTS.has(host)) return "gemini-upload";
   return null;
 }
 
@@ -275,28 +358,45 @@ function classify(request, urlObj) {
 
 async function maskStringSlots(slots, vaultId) {
   const types = new Set();
+  const uncovered = new Set();
   let count = 0;
+  let degraded = false;
   for (const slot of slots) {
     const original = slot.get();
     if (!original || !original.trim()) continue;
     const r = await maskViaBackend(original, vaultId);
-    if (!r.safe_to_send) {
-      const e = new Error("residual leak");
-      e.leakTypes = (r.leaks || []).map((l) => l.type).filter(Boolean);
-      e.leakCount = (r.leaks || []).length;
+    if (r.safe_to_send !== true || typeof r.masked_text !== "string") {
+      const leaks = Array.isArray(r.leaks) ? r.leaks : [];
+      const e = new Error(leaks.length ? "residual leak"
+        : r.coverage_complete === false ? "Detection coverage incomplete (strict mode)"
+        : "backend marked the text unsafe to send");
+      e.leakTypes = leaks.map((l) => l && l.type).filter(Boolean);
+      e.leakCount = leaks.length;
       throw e;
     }
-    // Verify the real values are really gone from what we will send.
+    // (/api/mask doesn't return `pairs`; this is a no-op unless a backend adds them.)
     if (countResidualOriginals(r.masked_text, r.pairs) > 0) throw new Error("verification failed");
     slot.set(r.masked_text);
     count += r.entities_found || 0;
     (r.entity_types || []).forEach((t) => types.add(t));
+    // Non-strict backends still say safe_to_send=true when e.g. the semantic model
+    // (names/orgs/locations) wasn't ready. Don't hide that: record what was NOT checked.
+    if (r.degraded === true || r.coverage_complete === false) {
+      degraded = true;
+      (r.uncovered_labels || []).forEach((t) => uncovered.add(t));
+    }
   }
-  return { types: [...types], count };
+  return { types: [...types], count, degraded, uncovered: [...uncovered] };
 }
 
+const blockForMaskError = (source, requestId, err) =>
+  block(source, requestId,
+    err.leakCount ? "Residual scanner found leaks" : `Masking failed: ${err.message}`,
+    err.leakTypes || [], err.leakCount || 0);
+
 async function handleSend(source, params, body) {
-  const { requestId, tabId } = { requestId: params.requestId, tabId: source.tabId };
+  const { requestId } = params;
+  const tabId = source.tabId;
   let parsed;
   try {
     parsed = JSON.parse(new TextDecoder().decode(body));
@@ -307,7 +407,7 @@ async function handleSend(source, params, body) {
   const textSlots = collectUserTextSlots(parsed);
   const nameSlots = collectAttachmentNameSlots(parsed);
   if (!textSlots.some((s) => s.get() && s.get().trim()) && nameSlots.length === 0) {
-    return cont(source, requestId); // nothing user-authored to mask
+    return cont(source, requestId);
   }
 
   const vaultId = await resolveVaultId(tabId, parsed.conversation_id || null);
@@ -315,21 +415,45 @@ async function handleSend(source, params, body) {
   try {
     result = await maskStringSlots([...textSlots, ...nameSlots], vaultId);
   } catch (err) {
-    return block(source, requestId,
-      err.leakCount ? "Residual scanner found leaks" : `Masking failed: ${err.message}`,
-      err.leakTypes || [], err.leakCount || 0);
+    return blockForMaskError(source, requestId, err);
   }
 
-  const out = bytesToBase64(new TextEncoder().encode(JSON.stringify(parsed)));
   try {
-    await cont(source, requestId, { postData: out });
+    await cont(source, requestId, { postData: encodeJson(parsed) });
   } catch (e) {
     console.error("[Doppel] continueRequest (masked) failed:", e.message);
     await block(source, requestId, "continueRequest failed");
     return;
   }
-  trace({ kind: "send", outcome: "MASKED", detail: `${result.count} entities` });
-  await logActivity("mask", { entityTypes: result.types, entityCount: result.count });
+  trace({ kind: "send", outcome: "MASKED", detail: `${result.count} entities${result.degraded ? " (" + coverageNote(result.uncovered) + ")" : ""}` });
+  await logActivity("mask", {
+    entityTypes: result.types, entityCount: result.count,
+    detail: result.degraded ? coverageNote(result.uncovered) : "",
+  });
+}
+
+/** Draft prompt in /f/conversation/prepare → mask with the same vault as the send. */
+async function handlePrepare(source, params, body) {
+  const { requestId } = params;
+  let parsed;
+  try { parsed = JSON.parse(new TextDecoder().decode(body)); }
+  catch { return block(source, requestId, "Unparseable prepare body"); }
+
+  const slots = collectPrepareSlots(parsed);
+  if (!slots.some((s) => s.get() && s.get().trim())) return cont(source, requestId);
+
+  const vaultId = await resolveVaultId(source.tabId, parsed.conversation_id || null);
+  let result;
+  try { result = await maskStringSlots(slots, vaultId); }
+  catch (err) { return blockForMaskError(source, requestId, err); }
+
+  try {
+    await cont(source, requestId, { postData: encodeJson(parsed) });
+  } catch {
+    return block(source, requestId, "continueRequest failed");
+  }
+  // Not counted as a separate "prompt" in stats (the real send is), trace only.
+  trace({ kind: "prepare", outcome: "MASKED", detail: `${result.count} entities` });
 }
 
 /** Mask the file_name in an upload reservation and remember it for the PUT. */
@@ -339,7 +463,7 @@ async function handleReserve(source, params, body) {
   let parsed;
   try { parsed = JSON.parse(new TextDecoder().decode(body)); } catch { parsed = null; }
   if (!parsed || typeof parsed.file_name !== "string") {
-    return cont(source, requestId); // other /files call, no filename inside
+    return cont(source, requestId);
   }
 
   const { stem, ext } = splitFilename(parsed.file_name);
@@ -355,43 +479,54 @@ async function handleReserve(source, params, body) {
   if (q.length > 20) q.shift();
   reservedNames.set(tabId, q);
 
-  await cont(source, requestId, {
-    postData: bytesToBase64(new TextEncoder().encode(JSON.stringify(parsed))),
-  });
+  await cont(source, requestId, { postData: encodeJson(parsed) });
 }
 
 async function handleFilePut(source, params, body) {
   const { requestId, request } = params;
   const tabId = source.tabId;
-  if (!body || body.length === 0) return cont(source, requestId); // nothing to leak
+  if (!body || body.length === 0) return cont(source, requestId); // genuinely empty
 
   const headers = request.headers || {};
-  const contentType = headers["Content-Type"] || headers["content-type"] || "application/octet-stream";
+  const contentType = getHeader(headers, "content-type") ||
+    getHeader(headers, "x-ms-blob-content-type") || "application/octet-stream";
   const queue = reservedNames.get(tabId) || [];
-  let filename = queue.shift();
-  if (!filename) filename = `uploaded_file${sniffExtension(body, contentType)}`;
+  const filename = queue.shift() || "";
 
-  const vaultId = await resolveVaultId(tabId, null);
-  let masked;
+  let res;
   try {
-    masked = await maskFileViaBackend(body, filename, contentType, vaultId);
+    res = await maskFileChecked(body, filename, contentType, await resolveVaultId(tabId, null));
   } catch (err) {
     return block(source, requestId, `File masking failed: ${err.message}`);
   }
-  if (!masked || masked.length === 0) return block(source, requestId, "Empty masked file");
 
   try {
-    await cont(source, requestId, { postData: bytesToBase64(masked) });
+    await cont(source, requestId, { postData: bytesToBase64(res.bytes) });
   } catch (e) {
     console.error("[Doppel] continueRequest (file) failed:", e.message);
     await block(source, requestId, "continueRequest failed");
     return;
   }
-  // The file pipeline does not report entity counts; count the file, not entities.
-  trace({ kind: "file-put", outcome: "MASKED", detail: `${body.length} -> ${masked.length} bytes` });
-  await logActivity("file", { detail: "File masked", entityCount: 0 });
+  await recordFileMasked("file-put", body.length, res);
 }
 
+/**
+ * Mask file bytes through the backend. The name handed to the backend gets an
+ * extension that agrees with the content (the backend needs .docx/.xlsx on a
+ * ZIP to treat it as Word/Excel). Throws if the backend refuses or returns nothing.
+ */
+async function maskFileChecked(bytes, filename, contentType, vaultId) {
+  const name = fixFilename(filename, bytes, contentType);
+  const res = await maskFileViaBackend(bytes, name, contentType, vaultId);
+  if (!res.bytes || res.bytes.length === 0) throw new BackendError("Backend returned an empty file");
+  return res;
+}
+
+async function recordFileMasked(kind, inBytes, res) {
+  const note = res.degraded ? coverageNote(res.uncovered) : "";
+  trace({ kind, outcome: "MASKED", detail: `${inBytes} -> ${res.bytes.length} bytes, ${res.replacements} replacements${note ? " (" + note + ")" : ""}` });
+  await logActivity("file", { detail: note ? `File masked — ${note}` : "File masked", entityCount: res.replacements });
+}
 
 // ── Gemini ────────────────────────────────────────────────
 
@@ -409,9 +544,7 @@ async function handleGeminiSend(source, params, body) {
   try {
     result = await maskStringSlots([...text, ...names], vaultId);
   } catch (err) {
-    return block(source, requestId,
-      err.leakCount ? "Residual scanner found leaks" : `Masking failed: ${err.message}`,
-      err.leakTypes || [], err.leakCount || 0);
+    return blockForMaskError(source, requestId, err);
   }
   try {
     await cont(source, requestId, { postData: bytesToBase64(buildGeminiBody(state)) });
@@ -419,54 +552,119 @@ async function handleGeminiSend(source, params, body) {
     console.error("[Doppel] continueRequest (gemini) failed:", e.message);
     return block(source, requestId, "continueRequest failed");
   }
-  trace({ kind: "gemini-send", outcome: "MASKED", detail: `${result.count} entities` });
-  await logActivity("mask", { entityTypes: result.types, entityCount: result.count });
+  trace({ kind: "gemini-send", outcome: "MASKED", detail: `${result.count} entities${result.degraded ? " (" + coverageNote(result.uncovered) + ")" : ""}` });
+  await logActivity("mask", {
+    entityTypes: result.types, entityCount: result.count,
+    detail: result.degraded ? coverageNote(result.uncovered) : "",
+  });
+}
+
+/** Resumable protocol step 1: body carries the filename (PII) — mask it and remember it. */
+async function handleGeminiStart(source, params, body, headers) {
+  const { requestId } = params;
+  const tabId = source.tabId;
+  const type = getHeader(headers, "x-goog-upload-header-content-type") || null;
+  const name = parseGeminiStartName(body);
+  const q = geminiUploads.get(tabId) || [];
+
+  if (name === null) {
+    // Metadata-only start without a recognisable name: no file bytes here, allow.
+    q.push({ name: null, type });
+    geminiUploads.set(tabId, q);
+    trace({ kind: "gemini-upload", outcome: "start-unparsed" });
+    return cont(source, requestId);
+  }
+
+  const { stem, ext } = splitFilename(name);
+  let maskedName = name;
+  const slot = { get: () => stem, set: (v) => { maskedName = v + ext; } };
+  try {
+    await maskStringSlots([slot], await resolveVaultId(tabId, null));
+  } catch (err) {
+    return block(source, requestId, `Filename masking failed: ${err.message}`);
+  }
+  q.push({ name: maskedName, type });
+  if (q.length > 20) q.shift();
+  geminiUploads.set(tabId, q);
+  try {
+    await cont(source, requestId, { postData: bytesToBase64(buildGeminiStartBody(maskedName)) });
+  } catch {
+    return block(source, requestId, "continueRequest failed");
+  }
+  trace({ kind: "gemini-upload", outcome: "start-masked" });
+}
+
+/** Resumable protocol final step: body is the raw file. */
+async function handleGeminiFinalize(source, params, body, headers) {
+  const { requestId } = params;
+  const tabId = source.tabId;
+  const offset = getHeader(headers, "x-goog-upload-offset");
+  if (offset && offset.trim() !== "0") {
+    // The file arrives in several pieces; no single piece is a parseable document.
+    return block(source, requestId, "Chunked Gemini upload unsupported");
+  }
+  const entry = (geminiUploads.get(tabId) || []).shift() || {};
+  const ct = getHeader(headers, "content-type");
+  const contentType = (ct && !/^application\/x-www-form-urlencoded/i.test(ct) ? ct : null) ||
+    entry.type || "application/octet-stream";
+  let res;
+  try {
+    res = await maskFileChecked(body, entry.name || "", contentType, await resolveVaultId(tabId, null));
+  } catch (err) {
+    return block(source, requestId, `File masking failed: ${err.message}`);
+  }
+  try {
+    await cont(source, requestId, { postData: bytesToBase64(res.bytes) });
+  } catch {
+    return block(source, requestId, "continueRequest failed");
+  }
+  await recordFileMasked("gemini-upload", body.length, res);
 }
 
 async function handleGeminiUpload(source, params, body) {
   const { requestId, request } = params;
   const headers = request.headers || {};
   const ct = getHeader(headers, "content-type") || "";
-  const cmd = getHeader(headers, "x-goog-upload-command");
+  const cmd = (getHeader(headers, "x-goog-upload-command") || "").trim().toLowerCase();
   const boundary = boundaryFromContentType(ct);
 
+  if (cmd === "query" || cmd === "cancel") return cont(source, requestId); // no content
   if (!body || body.length === 0) return cont(source, requestId);
 
-  // Supported: single multipart/form-data upload carrying the file bytes.
+  // Single multipart/form-data upload carrying the file bytes.
   if (/^multipart\/form-data/i.test(ct) && boundary) {
     let parts;
     try { parts = parseMultipart(body, boundary); }
     catch (e) { return block(source, requestId, `Gemini upload parse failed (${e.message})`); }
     const filePart = parts.find((p) => p.filename !== null);
-    if (!filePart) return cont(source, requestId); // no file inside (metadata only)
+    if (!filePart) return cont(source, requestId);
     const vaultId = await resolveVaultId(source.tabId, null);
     const origName = filePart.filename || "upload";
-    let maskedBytes;
+    const inBytes = filePart.bytes.length;
+    let res;
     try {
-      maskedBytes = await maskFileViaBackend(filePart.bytes, origName,
+      res = await maskFileChecked(filePart.bytes, origName,
         filePart.contentType || "application/octet-stream", vaultId);
       const { stem, ext } = splitFilename(origName);
       await maskStringSlots([{ get: () => stem, set: (v) => { filePart.filename = v + ext; } }], vaultId);
     } catch (err) {
       return block(source, requestId, `File masking failed: ${err.message}`);
     }
-    if (!maskedBytes || maskedBytes.length === 0) return block(source, requestId, "Empty masked file");
-    filePart.bytes = maskedBytes;
+    filePart.bytes = res.bytes;
     try {
       await cont(source, requestId, { postData: bytesToBase64(buildMultipart(parts, boundary)) });
-    } catch (e) {
+    } catch {
       return block(source, requestId, "continueRequest failed");
     }
-    trace({ kind: "gemini-upload", outcome: "MASKED", detail: `${filePart.bytes.length} bytes` });
-    await logActivity("file", { detail: "File masked", entityCount: 0 });
+    await recordFileMasked("gemini-upload", inBytes, res);
     return;
   }
 
-  // Resumable protocol "start" call: metadata only (no file bytes). Allow.
-  if (cmd && cmd.trim().toLowerCase() === "start") return cont(source, requestId);
+  if (cmd === "start") return handleGeminiStart(source, params, body, headers);
+  if (cmd.includes("upload") && cmd.includes("finalize")) {
+    return handleGeminiFinalize(source, params, body, headers);
+  }
 
-  // Anything else may carry file bytes in a form we can't safely rewrite. Fail closed,
-  // and record the (non-sensitive) protocol hints so support can see what Gemini sent.
   trace({ kind: "gemini-upload", outcome: "UNSUPPORTED", detail: `content-type=${ct.split(";")[0]} x-goog-upload-command=${cmd || "-"}` });
   return block(source, requestId, "Unsupported Gemini upload format");
 }
@@ -479,7 +677,6 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
   if (method !== "Fetch.requestPaused") return;
   const { requestId, request } = params;
   if (params.responseStatusCode !== undefined || params.responseErrorReason !== undefined) {
-    // We only enable the Request stage; if a response-stage event slips in, pass it on.
     try { await chrome.debugger.sendCommand(source, "Fetch.continueResponse", { requestId }); } catch {}
     return;
   }
@@ -489,7 +686,6 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
     kind = classify(request, new URL(request.url));
   } catch { kind = null; }
 
-  // Content-free diagnostics (host/method/kind only — never paths, queries or bodies).
   try {
     const h = new URL(request.url).hostname;
     if (request.method !== "GET" && request.method !== "OPTIONS") {
@@ -504,7 +700,6 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
     return;
   }
 
-  // Protection switched off by the user → pass through (we also detach, this is a backstop)
   const { [PROTECTION_KEY]: enabled } = await chrome.storage.local.get(PROTECTION_KEY);
   if (enabled === false) {
     try { await cont(source, requestId); } catch {}
@@ -512,10 +707,17 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
   }
 
   try {
+    if (kind === "file-chunk") {
+      return await block(source, requestId, "Chunked file upload unsupported");
+    }
     const body = await getRequestBody(source, params);
     if (kind === "send") {
       if (!body) return cont(source, requestId);
       return await handleSend(source, params, body);
+    }
+    if (kind === "prepare") {
+      if (!body) return cont(source, requestId);
+      return await handlePrepare(source, params, body);
     }
     if (kind === "gemini-send") {
       if (!body) return block(source, requestId, "Gemini send without body");
@@ -528,7 +730,6 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
     }
     return await handleFilePut(source, params, body);
   } catch (err) {
-    // Anything unexpected on a sensitive request → block, never leak.
     console.error(`[Doppel] ${kind} handler error:`, err.message);
     await block(source, requestId, `Interception error (${kind})`);
   }
@@ -552,7 +753,6 @@ function attachDebuggerToTab(tabId) {
       try {
         await chrome.debugger.attach({ tabId }, "1.3");
       } catch (e) {
-        // After an SW restart the session may still be ours — adopt it.
         const targets = await chrome.debugger.getTargets();
         const mine = targets.find((t) => t.tabId === tabId && t.attached && t.extensionId === chrome.runtime.id);
         if (!mine) throw e;
@@ -574,6 +774,7 @@ function attachDebuggerToTab(tabId) {
 async function detachDebuggerFromTab(tabId) {
   attachedTabs.delete(tabId);
   reservedNames.delete(tabId);
+  geminiUploads.delete(tabId);
   pendingVaultId.delete(tabId);
   try { await chrome.debugger.detach({ tabId }); } catch { /* already detached */ }
   updateBadge(tabId);
@@ -622,7 +823,6 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   setDiag({ lastDetach: `tab ${source.tabId}: ${reason} at ${new Date().toLocaleTimeString()}` });
 });
 
-// Toggle in the popup → attach/detach immediately.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes[PROTECTION_KEY]) syncAllTabs();
 });
@@ -709,8 +909,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.runtime.onStartup.addListener(() => syncAllTabs().catch(() => {}));
 
-// MV3 service workers sleep and are not started by an extension reload. A periodic
-// alarm wakes us so ChatGPT tabs are never left silently unprotected.
 chrome.alarms.create("doppel-sync", { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === "doppel-sync") syncAllTabs().catch(() => {});
@@ -720,7 +918,6 @@ chrome.runtime.onInstalled.addListener(async () => {
   syncAllTabs().catch(() => {});
   await getToken();
   const cur = await chrome.storage.local.get([PROTECTION_KEY, "promptsMasked"]);
-  // Don't wipe stats/toggle on extension updates.
   if (cur.promptsMasked === undefined) {
     await chrome.storage.local.set({
       promptsMasked: 0, entitiesMasked: 0, filesMasked: 0, blocksCount: 0, activityLog: [],
@@ -729,7 +926,6 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (cur[PROTECTION_KEY] === undefined) await chrome.storage.local.set({ [PROTECTION_KEY]: true });
 });
 
-// On every SW start (including restarts), re-adopt / re-attach to ChatGPT tabs.
 syncAllTabs().catch((e) => console.error("[Doppel] initial sync failed:", e.message));
 
-console.log("[Doppel] Service worker v2.2 loaded");
+console.log("[Doppel] Service worker v2.3 loaded");
