@@ -1,0 +1,499 @@
+{
+  "leak_recall_overall": {
+    "char_recall": 0.9744,
+    "ci95": [
+      0.97,
+      0.978
+    ],
+    "spans": 286,
+    "fully_missed": 13,
+    "partial": 0
+  },
+  "strict": {
+    "precision": 0.9964,
+    "recall": 0.9545,
+    "f1": 0.975,
+    "tp": 273,
+    "fp": 1,
+    "fn": 13
+  },
+  "overlap": {
+    "precision": 0.9964,
+    "recall": 0.9545,
+    "f1": 0.975,
+    "tp": 273,
+    "fp": 1,
+    "fn": 13
+  },
+  "type_agnostic": {
+    "precision": 0.9964,
+    "recall": 0.9545,
+    "f1": 0.975,
+    "tp": 273,
+    "fp": 1,
+    "fn": 13
+  },
+  "benign": {
+    "cases": 40,
+    "cases_with_fp": 1,
+    "fp_spans": 1,
+    "fp_case_rate": 0.025
+  },
+  "out_of_scope_gold_spans": 39,
+  "latency_ms": {
+    "p50": 0.249,
+    "p95": 0.454,
+    "max": 1.033,
+    "ms_per_kb": 5.206
+  },
+  "per_label": {
+    "ABA_ROUTING": {
+      "strict_p": 1.0,
+      "strict_r": 0.8,
+      "strict_f1": 0.889,
+      "fp": 0,
+      "char_recall": 0.8,
+      "ci95": [
+        0.725,
+        0.859
+      ],
+      "spans": 15,
+      "fully_missed": 3,
+      "partial": 0
+    },
+    "API_KEY": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.997,
+        1.0
+      ],
+      "spans": 32,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "AUTH_TOKEN": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.994,
+        1.0
+      ],
+      "spans": 5,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "BANK_ACCOUNT_NUMBER": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.969,
+        1.0
+      ],
+      "spans": 12,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "CARD_EXPIRY": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.941,
+        1.0
+      ],
+      "spans": 11,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "CONNECTION_STRING": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.994,
+        1.0
+      ],
+      "spans": 12,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "CREDIT_CARD": {
+      "strict_p": 1.0,
+      "strict_r": 0.882,
+      "strict_f1": 0.938,
+      "fp": 0,
+      "char_recall": 0.8907,
+      "ci95": [
+        0.864,
+        0.913
+      ],
+      "spans": 34,
+      "fully_missed": 4,
+      "partial": 0
+    },
+    "CRYPTO_WALLET": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.989,
+        1.0
+      ],
+      "spans": 10,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "CVV": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.898,
+        1.0
+      ],
+      "spans": 11,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "EMAIL": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.994,
+        1.0
+      ],
+      "spans": 30,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "IBAN": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.984,
+        1.0
+      ],
+      "spans": 11,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "INTERNAL_URL": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.98,
+        1.0
+      ],
+      "spans": 8,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "IP_ADDRESS": {
+      "strict_p": 0.929,
+      "strict_r": 1.0,
+      "strict_f1": 0.963,
+      "fp": 1,
+      "char_recall": 1.0,
+      "ci95": [
+        0.978,
+        1.0
+      ],
+      "spans": 13,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "MEDICAL_RECORD_NUMBER": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.945,
+        1.0
+      ],
+      "spans": 6,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "PASSWORD": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.976,
+        1.0
+      ],
+      "spans": 12,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "PHONE_NUMBER": {
+      "strict_p": 1.0,
+      "strict_r": 0.8,
+      "strict_f1": 0.889,
+      "fp": 0,
+      "char_recall": 0.801,
+      "ci95": [
+        0.759,
+        0.838
+      ],
+      "spans": 30,
+      "fully_missed": 6,
+      "partial": 0
+    },
+    "PRIVATE_KEY": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.995,
+        1.0
+      ],
+      "spans": 3,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "TAX_ID": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.94,
+        1.0
+      ],
+      "spans": 6,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "US_SSN": {
+      "strict_p": 1.0,
+      "strict_r": 1.0,
+      "strict_f1": 1.0,
+      "fp": 0,
+      "char_recall": 1.0,
+      "ci95": [
+        0.986,
+        1.0
+      ],
+      "spans": 25,
+      "fully_missed": 0,
+      "partial": 0
+    }
+  },
+  "per_tag_leak_recall": {
+    "card-bundle": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.982,
+        1.0
+      ],
+      "spans": 24,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "csv": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.987,
+        1.0
+      ],
+      "spans": 10,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "cued": {
+      "char_recall": 0.9528,
+      "ci95": [
+        0.932,
+        0.967
+      ],
+      "spans": 60,
+      "fully_missed": 3,
+      "partial": 0
+    },
+    "cued-phone": {
+      "char_recall": 0.801,
+      "ci95": [
+        0.759,
+        0.838
+      ],
+      "spans": 30,
+      "fully_missed": 6,
+      "partial": 0
+    },
+    "hard": {
+      "char_recall": 0.0,
+      "ci95": [
+        0.0,
+        0.053
+      ],
+      "spans": 4,
+      "fully_missed": 4,
+      "partial": 0
+    },
+    "infra": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.98,
+        1.0
+      ],
+      "spans": 8,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "json": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.984,
+        1.0
+      ],
+      "spans": 12,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "log": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.993,
+        1.0
+      ],
+      "spans": 24,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "mixed": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.973,
+        1.0
+      ],
+      "spans": 6,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "multiline": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.995,
+        1.0
+      ],
+      "spans": 3,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "names": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.973,
+        1.0
+      ],
+      "spans": 6,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "obfuscated": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.969,
+        1.0
+      ],
+      "spans": 7,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "pdf-extracted": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.958,
+        1.0
+      ],
+      "spans": 4,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "prose": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.997,
+        1.0
+      ],
+      "spans": 34,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "secret": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.998,
+        1.0
+      ],
+      "spans": 51,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "ssn-bare": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.92,
+        1.0
+      ],
+      "spans": 4,
+      "fully_missed": 0,
+      "partial": 0
+    },
+    "wrapped": {
+      "char_recall": 0.0,
+      "ci95": [
+        0.0,
+        0.053
+      ],
+      "spans": 4,
+      "fully_missed": 4,
+      "partial": 0
+    },
+    "yaml": {
+      "char_recall": 1.0,
+      "ci95": [
+        0.981,
+        1.0
+      ],
+      "spans": 12,
+      "fully_missed": 0,
+      "partial": 0
+    }
+  }
+}
