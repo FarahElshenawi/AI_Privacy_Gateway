@@ -1,10 +1,10 @@
 {
   "name": "ai-privacy-gateway-extension",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "lint": "node --check src/background/service-worker.js && node --check src/background/body.js && node --check src/popup/popup.js"
+    "lint": "node --check src/background/service-worker.js && node --check src/background/body.js && node --check src/popup/popup.js && node --check src/content/demask.js && node --check src/content/file-interceptor.js"
   }
 }

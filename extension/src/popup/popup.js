@@ -62,6 +62,16 @@ toggle.addEventListener("click", () => {
   chrome.storage.local.set({ protectionEnabled: isActive });
 });
 
+// --- Toggle: show real values in replies ---
+const demaskToggle = document.getElementById("demaskToggle");
+chrome.storage.local.get("demaskEnabled", (result) => {
+  demaskToggle.classList.toggle("active", result.demaskEnabled !== false);
+});
+demaskToggle.addEventListener("click", () => {
+  const isActive = demaskToggle.classList.toggle("active");
+  chrome.storage.local.set({ demaskEnabled: isActive });
+});
+
 // --- Load stats ---
 function loadStats() {
   chrome.storage.local.get(

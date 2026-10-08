@@ -4,6 +4,7 @@ Wires all routers together:
   - /detect     — detect PII in text
   - /mask       — mask PII in text (detect + mask + scan)
   - /demask     — restore real values in LLM response
+  - /mapping    — fake→real entries of one conversation (extension demasks the page locally)
   - /process_file — process a file upload (multimodal)
   - /health     — health check
   - /token      — get the install token (for extension setup)
@@ -19,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.detect import router as detect_router
 from app.api.mask import router as mask_router
 from app.api.demask import router as demask_router
+from app.api.mapping import router as mapping_router
 from app.api.process_file import router as file_router
 from app.api.policies import router as policies_router
 from app.pipeline.engine import tier_status, warm_tier2
@@ -71,6 +73,7 @@ app.add_middleware(
 app.include_router(detect_router, prefix="/api", tags=["detection"])
 app.include_router(mask_router, prefix="/api", tags=["masking"])
 app.include_router(demask_router, prefix="/api", tags=["restoration"])
+app.include_router(mapping_router, prefix="/api", tags=["restoration"])
 app.include_router(file_router, prefix="/api", tags=["multimodal"])
 app.include_router(policies_router, prefix="/api", tags=["policies"])
 

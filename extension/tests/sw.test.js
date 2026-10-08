@@ -59,6 +59,8 @@ let maskOverride = null;     // partial MaskResponse overrides for one test
 let fileHeaders = {};        // extra X-DLP-* headers for one test
 let lastFile = null;         // { filename, size } the backend received
 let tokenFetches = 0;
+let mappingCalls = [];
+let mappingDown = false;
 const jsonErr = (status, detail) => new Response(JSON.stringify({ detail }), { status, headers: { "content-type": "application/json" } });
 
 globalThis.fetch = async (url, opts) => {
@@ -79,6 +81,14 @@ globalThis.fetch = async (url, opts) => {
       uncovered_labels: [], degraded_reasons: [], strict: false,
       ...(maskOverride || {}),
     });
+  }
+  if (u.endsWith("/api/mapping")) {
+    const { conversation_id, since_version } = JSON.parse(opts.body);
+    mappingCalls.push({ conversation_id, since_version });
+    if (mappingDown) return jsonErr(503, "down");
+    return Response.json(since_version === 4
+      ? { version: 4, changed: false, entries: [] }
+      : { version: 4, changed: true, entries: [{ fake: "Hager", real: "Farah" }] });
   }
   if (u.endsWith("/api/process_file")) {
     const f = opts.body.get("file");
@@ -495,4 +505,51 @@ test("MASK_SELECTED_FILE: unsupported file (image) → error with a readable rea
   const r = await sendMsg({ ...selected(png, "pic.png"), contentType: "image/png" });
   assert.equal(r.success, false);
   assert.ok(r.error && r.error.length > 0);
+});
+
+
+// ── Reply demasking: GET_MAPPING (page-side demasker asks the worker) ─────────────────────
+test("GET_MAPPING: returns the conversation's entries from the backend", async () => {
+  resetCalls(); mappingCalls = []; mappingDown = false;
+  const r = await sendMsg({ type: "GET_MAPPING", sinceVersion: null });
+  assert.equal(r.success, true);
+  assert.equal(r.enabled, true);
+  assert.deepEqual(r.entries, [{ fake: "Hager", real: "Farah" }]);
+  assert.match(mappingCalls[0].conversation_id, /^(new_|conv_)/);
+});
+
+test("GET_MAPPING: same version → changed:false and no entries", async () => {
+  resetCalls(); mappingCalls = [];
+  const r = await sendMsg({ type: "GET_MAPPING", sinceVersion: 4 });
+  assert.equal(r.changed, false);
+  assert.deepEqual(r.entries, []);
+});
+
+test("GET_MAPPING uses the SAME vault id as masking in that tab", async () => {
+  resetCalls(); mappingCalls = [];
+  await sendMsg({ type: "GET_MAPPING", sinceVersion: null });
+  const first = mappingCalls[0].conversation_id;
+  mappingCalls = [];
+  await sendMsg({ type: "GET_MAPPING", sinceVersion: null });
+  assert.equal(mappingCalls[0].conversation_id, first, "stable per tab/conversation");
+});
+
+test("GET_MAPPING: off switch (popup) → enabled:false, backend not asked", async () => {
+  resetCalls(); mappingCalls = [];
+  await chrome.storage.local.set({ demaskEnabled: false });
+  const r = await sendMsg({ type: "GET_MAPPING", sinceVersion: null });
+  await chrome.storage.local.set({ demaskEnabled: true });
+  assert.equal(r.enabled, false);
+  assert.equal(mappingCalls.length, 0);
+});
+
+test("GET_MAPPING: protection off → disabled; non-chat sender refused; backend error → failure", async () => {
+  resetCalls();
+  await chrome.storage.local.set({ protectionEnabled: false });
+  assert.equal((await sendMsg({ type: "GET_MAPPING" })).enabled, false);
+  await chrome.storage.local.set({ protectionEnabled: true });
+  assert.equal((await sendMsg({ type: "GET_MAPPING" }, { tab: { id: 9, url: "https://evil.example/" } })).success, false);
+  mappingDown = true;
+  assert.equal((await sendMsg({ type: "GET_MAPPING" })).success, false);
+  mappingDown = false;
 });
