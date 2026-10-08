@@ -128,6 +128,10 @@ class DetectionPipeline:
         self._abandoned: dict[str, Future] = {}   # timed-out calls that are still running
         self._lock = threading.Lock()
 
+    def set_policy(self, policy) -> None:
+        """Hot-swap the merge policy (used by cloud policy sync)."""
+        self._merge.set_policy(policy)
+
     def close(self) -> None:
         self._pool.shutdown(wait=False, cancel_futures=True)
 

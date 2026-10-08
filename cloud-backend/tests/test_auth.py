@@ -15,6 +15,11 @@ PROTECTED = [
     ("GET", "/api/audit/stats", None),
     ("POST", "/api/audit", {"event_type": "mask"}),
     ("DELETE", "/api/audit/1", None),
+    # Endpoints (local-backend fleet management)
+    ("GET", "/api/endpoints", None),
+    ("POST", "/api/endpoints/enroll", {"hostname": "h1"}),
+    ("POST", "/api/endpoints/heartbeat", {"enrollment_token": "x" * 32}),
+    ("DELETE", "/api/endpoints/1", None),
 ]
 
 

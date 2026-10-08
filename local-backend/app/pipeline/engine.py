@@ -9,17 +9,25 @@ vault, and the Demasker. Everything that can be tuned is an environment variable
     DLP_WARM_TIER2        default true   load the model at startup in a background thread
     DLP_STRICT            default false  true = safe_to_send is False whenever coverage is incomplete
     DLP_MAX_TEXT_CHARS    default 200000 /mask and /detect reject longer text (files are batched instead)
+
+Vault persistence (env vars):
+    DLP_VAULT_PERSIST     default true   false = use InMemoryVault (mappings die on restart)
+    DLP_VAULT_DB_PATH     default ~/.pii_gateway_vault.db  SQLite path for PersistentVault
+    DLP_VAULT_KEY         optional       base64 Fernet key; if unset, ~/.pii_gateway_vault.key
+                                          is created with 0600 perms on first run
 """
 from __future__ import annotations
 
 import os
 import threading
+from pathlib import Path
 
-from dlp_core import Demasker, FernetSealer, InMemoryVault, OffsetMasker
+from dlp_core import Demasker, FernetSealer, InMemoryVault, OffsetMasker, PersistentVault
 from dlp_core.detection import DetectionPipeline, DetectionResult, DetectorSpec
 from dlp_core.residual_scanner import scan as residual_scan
 from dlp_core.tier1 import Tier1Config, Tier1Engine
 from dlp_core.tier2 import Tier2Config, Tier2Engine
+from dlp_core.vault import ensure_vault_key_file, resolve_vault_key
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -60,7 +68,20 @@ try:
 except ImportError:
     _surrogate = None
 
-_vault = InMemoryVault(FernetSealer())
+
+# ── Vault: PersistentVault by default (survives restarts), InMemoryVault if disabled. ──
+# Persistence is critical for demasking: without it, every backend restart loses every
+# fake↔real mapping and /demask becomes useless for any conversation older than the restart.
+def _build_vault():
+    if not _env_bool("DLP_VAULT_PERSIST", True):
+        return InMemoryVault(FernetSealer())
+    db_path = os.environ.get("DLP_VAULT_DB_PATH",
+                             str(Path.home() / ".pii_gateway_vault.db"))
+    key = resolve_vault_key() or ensure_vault_key_file()
+    return PersistentVault(FernetSealer(key), db_path)
+
+
+_vault = _build_vault()
 _tier1 = Tier1Engine(Tier1Config())
 _tier2 = Tier2Engine(Tier2Config(enabled=_env_bool("DLP_TIER2_ENABLED", True)))
 

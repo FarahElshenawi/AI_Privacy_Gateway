@@ -79,6 +79,10 @@ class MergeEngine:
         self._snap = snap_to_word_boundary
         self._min = {k.upper(): float(v) for k, v in (min_scores or {}).items()}
 
+    def set_policy(self, policy: Policy) -> None:
+        """Atomically swap the label->action table (Policy is immutable after construction)."""
+        self._policy = policy
+
     def merge(self, spans: Iterable[Span], text: Optional[str] = None) -> list[MergedSpan]:
         n = len(text) if text is not None else None
         items: list[tuple[int, int, Span, Action]] = []

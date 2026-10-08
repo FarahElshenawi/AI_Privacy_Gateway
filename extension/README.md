@@ -25,6 +25,18 @@ masked body.
 Text goes to `/api/mask`; files go to `/api/process_file`. File type is detected from the
 bytes (PDF magic, `word/document.xml` / `xl/workbook.xml` inside the ZIP), not from the name.
 
+## Files: swapped in the page, then verified on the network
+
+ChatGPT uploads files as blobs, which the debugger can't always read reliably. So on
+chatgpt.com a small content script (`src/content/file-interceptor.js`) replaces each attached
+file with its **masked** version before the page's own code sees it. It covers the file picker,
+drag-and-drop and paste. The file goes to the local backend through the service worker; if any
+file in a batch can't be masked, none is attached and a red notice explains why.
+
+The network layer still checks the upload: a request whose body matches a file the extension
+just masked (by SHA-256, single use) is passed through; anything else is masked or blocked as
+below. Gemini uses the network path only (no content script yet).
+
 ## Fail closed
 
 If anything goes wrong — body can't be read, backend unreachable or rejects the token,
@@ -65,6 +77,7 @@ npm run lint
 manifest.json
 src/background/service-worker.js   # CDP interception, classification, backend calls
 src/background/body.js             # pure helpers: body parsing/building, file sniffing
+src/content/file-interceptor.js    # ChatGPT: swap attached files for masked ones (picker/drop/paste)
 src/popup/                         # stats, attach status, diagnostics
-tests/                             # body.test.js, sw.test.js
+tests/                             # body.test.js, sw.test.js, content.test.js
 ```

@@ -6,15 +6,17 @@ from .policy import (
     RoutingEntry, PolicyEntry, RoutingDecision, ROUTING_TABLE, ALIASES,
     normalize_label, normalize_type, is_publicly_routable_ip,
     route_label, route_entity, route_entities, get_routing_entry, get_policy, should_block,
-    PolicyConfigError, configure_policy_override, load_policy_config, load_policy_config_file,
-    reset_policy_to_defaults, get_active_routing_table,
 )
 from .merge import MergeEngine, MergedSpan
-from .vault import InMemoryVault, FernetSealer, Sealer, VaultCollisionError, VaultCapacityError
+from .vault import (
+    InMemoryVault, PersistentVault, FernetSealer, Sealer,
+    VaultCollisionError, VaultCapacityError,
+    resolve_vault_key, ensure_vault_key_file,
+)
 from .masker import (
     OffsetMasker, Demasker, MaskResult, MaskedSpanInfo, MaskingError, RequestBlockedError,
 )
-from .audit import AuditRecord, build_audit_record, emit_audit
+from .audit import AuditRecord, DemaskAuditRecord, build_audit_record, build_demask_audit_record, emit_audit, emit_demask_audit
 from .detection import (
     DetectionPipeline, DetectorSpec, DetectorReport, DetectionResult,
     Detector, DetectorUnavailable, UnavailableDetector, Status,
@@ -27,12 +29,13 @@ __all__ = [
     "RoutingEntry", "PolicyEntry", "RoutingDecision", "ROUTING_TABLE", "ALIASES",
     "normalize_label", "normalize_type", "is_publicly_routable_ip",
     "route_label", "route_entity", "route_entities", "get_routing_entry", "get_policy", "should_block",
-    "PolicyConfigError", "configure_policy_override", "load_policy_config", "load_policy_config_file",
-    "reset_policy_to_defaults", "get_active_routing_table",
     "MergeEngine", "MergedSpan",
-    "InMemoryVault", "FernetSealer", "Sealer", "VaultCollisionError", "VaultCapacityError",
+    "InMemoryVault", "PersistentVault", "FernetSealer", "Sealer",
+    "VaultCollisionError", "VaultCapacityError",
+    "resolve_vault_key", "ensure_vault_key_file",
     "OffsetMasker", "Demasker", "MaskResult", "MaskedSpanInfo", "MaskingError", "RequestBlockedError",
-    "AuditRecord", "build_audit_record", "emit_audit",
+    "AuditRecord", "DemaskAuditRecord", "build_audit_record", "build_demask_audit_record",
+    "emit_audit", "emit_demask_audit",
     "DetectionPipeline", "DetectorSpec", "DetectorReport", "DetectionResult",
     "Detector", "DetectorUnavailable", "UnavailableDetector", "Status",
     "residual_scan",
