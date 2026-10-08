@@ -290,10 +290,12 @@ def _make_decision(canonical: str, entry: RoutingEntry, rule: str) -> RoutingDec
 # Active (configurable) routing table. Initialized from default ROUTING_TABLE.
 _ACTIVE_ROUTING_TABLE: dict[str, RoutingEntry] = dict(ROUTING_TABLE)
 
-# Sensitive credential / secret labels that cannot be downgraded to KEEP
+# Sensitive credential, government, health, and payment labels that cannot be downgraded to KEEP
 _IMMUTABLE_CRITICAL_SECRETS: frozenset[str] = frozenset({
     "API_KEY", "AUTH_TOKEN", "JWT", "PRIVATE_KEY", "CLOUD_SECRET",
-    "CONNECTION_STRING", "PASSWORD", "RECOVERY_CODE", "CREDIT_CARD", "CVV"
+    "CONNECTION_STRING", "PASSWORD", "RECOVERY_CODE", "CREDIT_CARD", "CVV",
+    "US_SSN", "TAX_ID", "MEDICAL_RECORD_NUMBER", "HEALTH_INSURANCE_ID",
+    "GOVERNMENT_ID", "PASSPORT_NUMBER", "DRIVERS_LICENSE_NUMBER",
 })
 
 
@@ -307,8 +309,12 @@ def validate_and_create_entry(
     risk_level: Optional[RiskLevel | str] = None,
     entity_category: Optional[EntityCategory | str] = None,
     storage: Optional[StoragePolicy | str] = None,
+    existing_entry: Optional[RoutingEntry] = None,
 ) -> RoutingEntry:
-    """Validate and build a RoutingEntry from string/enum values."""
+    """Validate and build a RoutingEntry from string/enum values.
+    
+    If existing_entry is provided, any unprovided field inherits from it.
+    """
     if isinstance(action, str):
         act_str = action.strip().upper()
         if act_str in ("MASK", "FAKER", "PSEUDONYMIZE"):
@@ -324,41 +330,50 @@ def validate_and_create_entry(
     else:
         act_enum = Action(action)
 
-    # Risk level
-    if risk_level is None:
-        risk_enum = RiskLevel.MEDIUM
-    elif isinstance(risk_level, str):
-        try:
-            risk_enum = RiskLevel[risk_level.strip().upper()]
-        except KeyError:
-            raise PolicyConfigError(f"Unknown risk level: {risk_level}")
-    else:
-        risk_enum = RiskLevel(risk_level)
-
-    # Entity category
-    if entity_category is None:
-        cat_enum = EntityCategory.UNKNOWN
-    elif isinstance(entity_category, str):
-        try:
-            cat_enum = EntityCategory[entity_category.strip().upper()]
-        except KeyError:
-            raise PolicyConfigError(f"Unknown entity category: {entity_category}")
-    else:
-        cat_enum = EntityCategory(entity_category)
-
-    # Storage policy
-    if storage is None:
-        storage_enum = StoragePolicy.STORE_FOR_DEMASKING if act_enum is Action.FAKER else StoragePolicy.NO_STORE
-    elif isinstance(storage, str):
-        st_str = storage.strip().upper()
-        if st_str in ("STORE", "STORE_FOR_DEMASKING", "TRUE", "YES", "1"):
-            storage_enum = StoragePolicy.STORE_FOR_DEMASKING
-        elif st_str in ("NO_STORE", "FALSE", "NO", "0"):
-            storage_enum = StoragePolicy.NO_STORE
+    # Risk level: explicit > existing > default
+    if risk_level is not None:
+        if isinstance(risk_level, str):
+            try:
+                risk_enum = RiskLevel[risk_level.strip().upper()]
+            except KeyError:
+                raise PolicyConfigError(f"Unknown risk level: {risk_level}")
         else:
-            raise PolicyConfigError(f"Unknown storage policy: {storage}")
+            risk_enum = RiskLevel(risk_level)
+    elif existing_entry is not None:
+        risk_enum = existing_entry.risk_level
     else:
-        storage_enum = StoragePolicy(storage)
+        risk_enum = RiskLevel.MEDIUM
+
+    # Entity category: explicit > existing > default
+    if entity_category is not None:
+        if isinstance(entity_category, str):
+            try:
+                cat_enum = EntityCategory[entity_category.strip().upper()]
+            except KeyError:
+                raise PolicyConfigError(f"Unknown entity category: {entity_category}")
+        else:
+            cat_enum = EntityCategory(entity_category)
+    elif existing_entry is not None:
+        cat_enum = existing_entry.entity_category
+    else:
+        cat_enum = EntityCategory.UNKNOWN
+
+    # Storage policy: explicit > existing > default derived from action
+    if storage is not None:
+        if isinstance(storage, str):
+            st_str = storage.strip().upper()
+            if st_str in ("STORE", "STORE_FOR_DEMASKING", "TRUE", "YES", "1"):
+                storage_enum = StoragePolicy.STORE_FOR_DEMASKING
+            elif st_str in ("NO_STORE", "FALSE", "NO", "0"):
+                storage_enum = StoragePolicy.NO_STORE
+            else:
+                raise PolicyConfigError(f"Unknown storage policy: {storage}")
+        else:
+            storage_enum = StoragePolicy(storage)
+    elif existing_entry is not None:
+        storage_enum = existing_entry.storage
+    else:
+        storage_enum = StoragePolicy.STORE_FOR_DEMASKING if act_enum is Action.FAKER else StoragePolicy.NO_STORE
 
     return RoutingEntry(
         action=act_enum,
@@ -378,14 +393,19 @@ def configure_policy_override(
 ) -> None:
     """Configure a policy override for a specific entity type at runtime.
 
-    Validates that high-risk authentication credentials cannot be downgraded
-    to KEEP.
+    Preserves the existing risk level, entity category, and storage policy
+    unless those fields are explicitly overridden.
+    Validates that high-risk authentication credentials and identity secrets
+    cannot be downgraded to KEEP.
     """
     canonical = normalize_label(label)
     if not canonical:
         raise PolicyConfigError("Entity label cannot be empty")
 
-    new_entry = validate_and_create_entry(action, risk_level, entity_category, storage)
+    existing_entry = _ACTIVE_ROUTING_TABLE.get(canonical) or ROUTING_TABLE.get(canonical)
+    new_entry = validate_and_create_entry(
+        action, risk_level, entity_category, storage, existing_entry=existing_entry
+    )
 
     # Security constraint: Secrets cannot be configured as KEEP
     if canonical in _IMMUTABLE_CRITICAL_SECRETS and new_entry.action is Action.KEEP:

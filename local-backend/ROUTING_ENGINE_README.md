@@ -110,7 +110,9 @@ Deterministic RoutingDecision
    ```
 
 ### Security Constraints:
-* **Immutable Secrets:** High-risk credentials (`API_KEY`, `PASSWORD`, `JWT`, `PRIVATE_KEY`, `CLOUD_SECRET`, `CONNECTION_STRING`, `RECOVERY_CODE`, `CREDIT_CARD`, `CVV`) **cannot** be downgraded to `KEEP`. Attempting to do so raises `PolicyConfigError`.
+* **Immutable Secrets & Identifiers:** High-risk credentials, payment data, and government/health identifiers (`API_KEY`, `PASSWORD`, `JWT`, `PRIVATE_KEY`, `CLOUD_SECRET`, `CONNECTION_STRING`, `RECOVERY_CODE`, `CREDIT_CARD`, `CVV`, `US_SSN`, `TAX_ID`, `MEDICAL_RECORD_NUMBER`, `HEALTH_INSURANCE_ID`, `GOVERNMENT_ID`, `PASSPORT_NUMBER`, `DRIVERS_LICENSE_NUMBER`) **cannot** be downgraded to `KEEP`. Attempting to configure them as `KEEP` raises `PolicyConfigError`.
+* **Value-Dependent IP Routing:** `IP_ADDRESS`, `IPV4`, and `IPV6` decisions depend on the actual IP text value (classified offline via stdlib `ipaddress` against IANA RFC 6890 / 8190 registries) and are handled separately from static label-only configuration overrides. Globally reachable IPs route to `KEEP`; private/loopback/CGNAT/unparseable IPs route to `REDACT` + `NO_STORE`.
+* **Metadata Preservation:** Overriding only the action (e.g. `ORGANIZATION -> REDACT`) preserves the entity's existing risk level, entity category, and storage policy unless explicitly overridden.
 * **Fail-Closed Unknowns:** Any unconfigured or unknown entity continues to fail-safe to `REDACT` + `NO_STORE`.
 * **Resetting:** `reset_policy_to_defaults()` restores the engine back to factory default policies.
 
@@ -118,7 +120,7 @@ Deterministic RoutingDecision
 
 ## 5. Routing Performance Benchmark
 
-A reproducible, standalone benchmark is available at `benchmark_routing.py`. It measures pure routing engine latency and throughput without running external LLMs or detection models.
+A reproducible, standalone benchmark is available at `benchmark_routing.py`. It measures pure routing engine latency and throughput without measurement overhead from per-operation clock calls.
 
 ### How to Run:
 ```bash
@@ -127,16 +129,16 @@ python benchmark_routing.py
 ```
 
 ### Workloads & Actual Measured Results:
-Measured on standard x86_64 hardware:
+Measured on local hardware (Python 3.11, Windows x86_64):
 
 | Workload | Total Operations | Total Time | Average Latency | P95 Latency | Throughput |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **10 Entities** | 1,000 | 4.99 ms | **4.61 µs** (0.0046 ms) | **9.20 µs** | **200,509 ops/sec** |
-| **100 Entities** | 5,000 | 23.33 ms | **4.28 µs** (0.0042 ms) | **8.70 µs** | **214,316 ops/sec** |
-| **1,000 Entities** | 10,000 | 47.55 ms | **4.43 µs** (0.0044 ms) | **8.70 µs** | **210,285 ops/sec** |
-| **10,000 Entities** | 30,000 | 143.17 ms | **4.43 µs** (0.0044 ms) | **8.80 µs** | **209,537 ops/sec** |
+| **10 Entities** | 1,000 | 3.07 ms | **3.07 µs** | **6.00 µs** | **325,828 ops/sec** |
+| **100 Entities** | 5,000 | 15.08 ms | **3.02 µs** | **6.85 µs** | **331,470 ops/sec** |
+| **1,000 Entities** | 10,000 | 34.53 ms | **3.45 µs** | **4.96 µs** | **289,569 ops/sec** |
+| **10,000 Entities** | 30,000 | 99.10 ms | **3.30 µs** | **5.88 µs** | **302,726 ops/sec** |
 
-*Conclusion:* Deterministic routing executes in **< 5 microseconds** per entity with throughput exceeding **200,000 operations/sec**, satisfying the sub-millisecond requirement.
+*Factual Performance Summary:* Across all tested workloads (from 10 up to 10,000 entities), the deterministic routing engine consistently achieves an average latency between **3.0 µs and 3.5 µs** per entity with P95 latency under **7.0 µs** and throughput exceeding **280,000 operations/sec**.
 
 ---
 

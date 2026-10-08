@@ -82,21 +82,49 @@ def test_override_new_unknown_entity_type():
     assert after.rule == "override:PROJECT_CODENAME"
 
 
-def test_security_prevents_critical_secrets_from_being_downgraded_to_keep():
-    """Security rule: API_KEY, PASSWORD, JWT, CREDIT_CARD etc. cannot be overridden to KEEP."""
-    critical_secrets = [
+def test_action_only_override_preserves_existing_metadata():
+    """Requirement 2: Overriding action only preserves existing risk, category, and storage."""
+    # Check baseline IBAN: action=REDACT, risk=HIGH, category=FINANCIAL, storage=STORE_FOR_DEMASKING
+    orig_iban = route_label("IBAN")
+    assert orig_iban.action is Action.REDACT
+    assert orig_iban.risk_level is RiskLevel.HIGH
+    assert orig_iban.entity_category is EntityCategory.FINANCIAL
+    assert orig_iban.storage is StoragePolicy.STORE_FOR_DEMASKING
+
+    # Override IBAN to BLOCK without passing risk, category, or storage
+    configure_policy_override("IBAN", Action.BLOCK)
+    overridden_iban = route_label("IBAN")
+    assert overridden_iban.action is Action.BLOCK
+    assert overridden_iban.risk_level is RiskLevel.HIGH
+    assert overridden_iban.entity_category is EntityCategory.FINANCIAL
+    assert overridden_iban.storage is StoragePolicy.STORE_FOR_DEMASKING
+
+    # Override PERSON to REDACT without passing metadata: preserves PII and STORE_FOR_DEMASKING
+    configure_policy_override("PERSON", Action.REDACT)
+    overridden_person = route_label("PERSON")
+    assert overridden_person.action is Action.REDACT
+    assert overridden_person.risk_level is RiskLevel.HIGH
+    assert overridden_person.entity_category is EntityCategory.PII
+    assert overridden_person.storage is StoragePolicy.STORE_FOR_DEMASKING
+
+
+def test_security_prevents_critical_secrets_and_gov_ids_from_being_downgraded_to_keep():
+    """Security rule: Credentials, PCI, Gov IDs, and Health IDs cannot be overridden to KEEP."""
+    critical_entities = [
         "API_KEY", "AUTH_TOKEN", "JWT", "PRIVATE_KEY", "CLOUD_SECRET",
-        "CONNECTION_STRING", "PASSWORD", "RECOVERY_CODE", "CREDIT_CARD", "CVV"
+        "CONNECTION_STRING", "PASSWORD", "RECOVERY_CODE", "CREDIT_CARD", "CVV",
+        "US_SSN", "TAX_ID", "MEDICAL_RECORD_NUMBER", "HEALTH_INSURANCE_ID",
+        "GOVERNMENT_ID", "PASSPORT_NUMBER", "DRIVERS_LICENSE_NUMBER",
     ]
-    for secret_type in critical_secrets:
+    for ent_type in critical_entities:
         with pytest.raises(PolicyConfigError, match="Security violation"):
-            configure_policy_override(secret_type, Action.KEEP)
+            configure_policy_override(ent_type, Action.KEEP)
 
         with pytest.raises(PolicyConfigError, match="Security violation"):
-            configure_policy_override(secret_type, "KEEP")
+            configure_policy_override(ent_type, "KEEP")
 
-        # Verify it remained REDACT
-        assert route_label(secret_type).action is Action.REDACT
+        # Verify it remained Action.REDACT
+        assert route_label(ent_type).action is Action.REDACT
 
 
 def test_invalid_action_raises_policy_config_error():
@@ -155,3 +183,38 @@ def test_reset_policy_to_defaults():
 
     reset_policy_to_defaults()
     assert route_label("ORGANIZATION").action is Action.FAKER
+
+
+def test_complete_routing_table_default_policy_unchanged_after_overrides_and_reset():
+    """Requirement 4: Verify the entire ROUTING_TABLE matches default policy after overrides and reset."""
+    from dlp_core.policy import ROUTING_TABLE
+
+    # 1. Take a snapshot of every single decision across all known types
+    baseline_decisions = {k: route_label(k) for k in ROUTING_TABLE}
+
+    # 2. Apply multiple extensive overrides across different entities
+    configure_policy_override("ORGANIZATION", "REDACT")
+    configure_policy_override("EMAIL", "BLOCK")
+    configure_policy_override("INTERNAL_URL", "REDACT", storage="NO_STORE")
+    configure_policy_override("CUSTOM_NEW_TYPE", "MASK")
+
+    # Verify mutations took effect
+    assert route_label("ORGANIZATION").action is Action.REDACT
+    assert route_label("EMAIL").action is Action.BLOCK
+    assert route_label("INTERNAL_URL").storage is StoragePolicy.NO_STORE
+    assert route_label("CUSTOM_NEW_TYPE").action is Action.FAKER
+
+    # 3. Reset back to defaults
+    reset_policy_to_defaults()
+
+    # 4. Assert every single entry in ROUTING_TABLE matches the original baseline exactly
+    for label, default_entry in ROUTING_TABLE.items():
+        restored = route_label(label)
+        baseline = baseline_decisions[label]
+        assert restored.label == baseline.label
+        assert restored.action == baseline.action
+        assert restored.strategy == baseline.strategy
+        assert restored.risk_level == baseline.risk_level
+        assert restored.entity_category == baseline.entity_category
+        assert restored.storage == baseline.storage
+        assert restored.rule == f"policy:{label}"
