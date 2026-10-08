@@ -175,12 +175,12 @@ Displays:
 URL: http://localhost:5173/policies
 
 Loads on mount (no polling):
-  - GET /api/policies?org_id=1
+  - GET /api/policies
 
 Actions:
   - Click faker / redact / keep chip → PUT /api/policies/{id} with {action: "..."}
   - Click "New policy" → form with entity_type input + action dropdown
-    - Save → POST /api/policies with {org_id: 1, entity_type, action}
+    - Save → POST /api/policies with {entity_type, action}
   - Click × on a non-default policy → DELETE /api/policies/{id}
   - Default policies show a lock icon and have disabled chips
 
@@ -225,13 +225,13 @@ URL: http://localhost:5173/settings
 
 Loads on mount:
   - GET /health (then every 10s)
-  - GET /api/policies/export?org_id=1
+  - GET /api/policies/export
 
 Displays (read-only):
   1. Page header (eyebrow + "Organization" + subline)
   2. Org card — name (Acme Inc.), org ID (1), endpoints enrolled (1)
   3. Cloud backend connection — URL, health status, how to change URL
-  4. Per-org API key — hidden by default (shown as ••••)
+  4. Per-org API key — password input, stored for the tab session only
   5. Signed policy toggle — visual only, no API call yet (the cloud backend
      doesn't enforce signing — add middleware when needed)
   6. Exported policy snapshot — the live JSON the cloud backend would serve
@@ -310,7 +310,6 @@ No server-side runtime needed — it's just HTML + JS + CSS.
 | Env var | Default | Required | Notes |
 |---------|---------|----------|-------|
 | `VITE_CLOUD_BACKEND_URL` | `http://localhost:8000` | Yes | The cloud backend's URL. The dashboard makes all API calls relative to this. |
-| `VITE_ORG_ID` | `1` | No (defaults to 1) | The org ID to scope all queries to. For single-tenant deployments, leave at 1. |
 
 To change env vars after building, rebuild — Vite inlines them at build time.
 
@@ -371,19 +370,18 @@ entity type to the policies), the audit event will record only the count
 
 The audit log provides the immutable record of security-relevant events
 required for SOC 2 Type II. Pair with the cloud backend's TLS termination
-+ API key auth (add before audit) for the access control requirement.
+API key auth is implemented: every request carries `X-API-Key`.
 
 ---
 
 ## What's NOT in the dashboard (intentionally)
 
-- **Login / auth:** Single-tenant, single-org, no auth. Add a login screen
-  before production use. The cloud backend's `organizations.api_key` field
-  is for authenticating local backends, not the dashboard.
-- **Mock data fallback:** When the cloud backend is offline, every screen
-  shows an explicit "Can't reach the cloud backend" error with a retry
-  button. The dashboard only renders real data — no fake numbers.
-- **Multi-org switcher:** Hardcoded to `org_id=1`. Add a dropdown when you
+- **Auth:** The dashboard sends the organization's API key (`X-API-Key`) on every request.
+  Enter it in **Settings**; it's kept in `sessionStorage` (cleared when the tab closes). The
+  organization is derived from the key server-side. There is no per-user login yet — anyone
+  with the key has admin access to that org. Create keys with
+  `python -m app.admin create-org "<name>"` on the cloud backend.
+- **Multi-org switcher:** Not needed — the key selects the org. Add a dropdown when you
   have multiple orgs.
 - **WebSocket:** Audit log polls every 2s. Switch to WS when you need
   real-time push (the cloud backend doesn't expose WS yet).
@@ -427,7 +425,7 @@ To generate test events for the demo, POST to the cloud backend directly:
 ```bash
 curl -X POST http://localhost:8000/api/audit \
   -H "Content-Type: application/json" \
-  -d '{"org_id":1,"event_type":"mask","entity_types":{"PERSON":2},"entity_count":2,"latency_ms":23}'
+  -d '{"event_type":"mask","entity_types":{"PERSON":2},"entity_count":2,"latency_ms":23}'
 ```
 
 The event will appear in the dashboard within 2 seconds.
