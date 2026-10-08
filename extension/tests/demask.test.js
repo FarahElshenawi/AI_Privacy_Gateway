@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 
 const mod = { exports: {} };
 new Function("module", readFileSync(new URL("../src/content/demask.js", import.meta.url), "utf8"))(mod);
-const { buildReplacer, applyToTextNode, isEditable, createDemasker } = mod.exports;
+const { buildReplacer, applyToTextNode, isEditable, isAssistantTextNode, createDemasker } = mod.exports;
 
 const E = (fake, real) => ({ fake, real });
 
@@ -50,7 +50,14 @@ test("empty / invalid entries → no replacer", () => {
 
 // ── DOM application ───────────────────────────────────────────────────────────────────
 const textNode = (value, parent = null) => ({ nodeType: 3, nodeValue: value, parentElement: parent, parentNode: parent });
-const el = (editable) => ({ closest: () => (editable ? {} : null) });
+const el = (editable, assistant = false) => ({
+  closest: (selector) => {
+    if (selector.includes("[data-message-author-role") || selector.includes("model-response")) {
+      return assistant ? {} : null;
+    }
+    return editable ? {} : null;
+  }
+});
 
 test("applyToTextNode rewrites in place and does not loop on its own output", () => {
   const r = buildReplacer([E("Hager", "Farah")]);
@@ -59,6 +66,22 @@ test("applyToTextNode rewrites in place and does not loop on its own output", ()
   assert.equal(applyToTextNode(n, r, written), true);
   assert.equal(n.nodeValue, "hi Farah");
   assert.equal(applyToTextNode(n, r, written), false);
+});
+
+test("user-authored message text is never demasked", async () => {
+  const n = textNode("Hager", el(false, false));
+  const d = createDemasker(fakeDoc([n]), async () => ({
+    success: true, enabled: true, changed: true, version: 1,
+    entries: [E("Hager", "Farah")]
+  }));
+  await d.refresh();
+  assert.equal(n.nodeValue, "Hager");
+  assert.equal(isAssistantTextNode(n), false);
+});
+
+test("assistant message text is eligible for demasking", () => {
+  const n = textNode("Hager", el(false, true));
+  assert.equal(isAssistantTextNode(n), true);
 });
 
 test("editable regions (the composer) are never rewritten", () => {
@@ -77,7 +100,7 @@ function fakeDoc(nodes) {
 }
 
 test("refresh: first call gets entries and restores text already on screen", async () => {
-  const n = textNode("Dear Hager Samir");
+  const n = textNode("Dear Hager Samir", el(false, true));
   const sent = [];
   const d = createDemasker(fakeDoc([n]), async (m) => { sent.push(m); return { success: true, enabled: true, changed: true, version: 3, entries: [E("Hager Samir", "Farah Ahmed")] }; });
   await d.refresh();
