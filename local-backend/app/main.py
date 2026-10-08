@@ -23,6 +23,7 @@ from app.api.process_file import router as file_router
 from app.pipeline.engine import tier_status, warm_tier2
 from app.security.auth import get_install_token
 from app.security.origin_check import check_origin
+from app import cloud_sync
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -30,7 +31,13 @@ async def lifespan(_: FastAPI):
     # reported as "warming_up" (degraded coverage) until it is ready, instead of the first
     # user request waiting for the model load.
     threading.Thread(target=warm_tier2, name="tier2-warmup", daemon=True).start()
-    yield
+    # Start cloud sync (enrollment, heartbeat, audit push, policy pull).
+    # No-op if CLOUD_URL or CLOUD_API_KEY is unset — runs standalone.
+    cloud_sync.start()
+    try:
+        yield
+    finally:
+        cloud_sync.stop()
 
 
 app = FastAPI(
@@ -64,7 +71,13 @@ app.include_router(file_router, prefix="/api", tags=["multimodal"])
 @app.get("/health")
 async def health():
     """Health check — no auth required. Reports tier readiness as short codes (no user data)."""
-    return {"status": "ok", "service": "pii-gateway-backend", "version": "1.0.0", "tiers": tier_status()}
+    return {
+        "status": "ok",
+        "service": "pii-gateway-backend",
+        "version": "1.0.0",
+        "tiers": tier_status(),
+        "cloud_sync": cloud_sync.status(),
+    }
 
 
 @app.get("/token")
