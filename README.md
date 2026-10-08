@@ -137,7 +137,7 @@ On first start, Tier 2 (GLiNER2) loads in a background thread (~10-30s). Until r
 2. Enable **Developer Mode** (top right toggle)
 3. Click **Load unpacked** → select the `extension/` folder
 4. Accept the `debugger` permission warning
-5. Visit `chatgpt.com` — a yellow banner appears: "Doppel is debugging this browser"
+5. Visit `chatgpt.com` or `gemini.google.com` — a yellow banner appears: "Doppel is debugging this browser"
 
 ### 3. Test It
 
@@ -148,7 +148,10 @@ The extension will:
 1. Intercept the request via CDP `Fetch.requestPaused`
 2. Send to backend for detection + masking
 3. Replace the body with masked text
-4. Forward to OpenAI via `Fetch.continueRequest` (base64-encoded)
+4. Forward the masked request via `Fetch.continueRequest` (base64-encoded)
+
+Attached files (PDF, Word, Excel) are intercepted the same way and sent to `/api/process_file`;
+the masked file is what gets uploaded. Anything that can't be masked is blocked.
 
 ChatGPT receives: "My name is [FAKE NAME], my card is [REDACTED:CREDIT_CARD], email [FAKE EMAIL]"
 
@@ -420,10 +423,11 @@ AI_Privacy_Gateway/
 │   └── tests/                   # Integration tests
 ├── extension/                   # Chrome extension (Manifest V3, chrome.debugger)
 │   ├── manifest.json            # debugger permission, host_permissions
-│   ├── src/background/          # CDP interception, masking calls
+│   ├── src/background/          # CDP interception, file/text masking calls
+│   ├── tests/                   # node --test (mock chrome/CDP)
 │   └── src/popup/               # Popup UI (stats, attach status)
-├── cloud-backend/               # Cloud control plane (future work — not connected)
-├── dashboard/                   # Admin dashboard (future work)
+├── cloud-backend/               # Cloud control plane (API-key auth, org-scoped; not yet called by local backend)
+├── dashboard/                   # Admin dashboard (talks to cloud backend with an API key)
 ├── eval/                        # Evaluation sets + scoring scripts
 ├── docs/                        # Architecture, ADRs
 └── pyproject.toml               # Root project config (uv)
@@ -447,8 +451,8 @@ AI_Privacy_Gateway/
 
 - **Response demasking not wired.** User sees `[REDACTED:CREDIT_CARD]` and faker surrogates in ChatGPT responses. The vault + Demasker exist but the extension doesn't call `/api/demask` yet.
 - **No OCR.** Scanned PDFs and images are rejected (fail-closed), not silently passed through.
-- **Cloud backend not connected.** Policy distribution and audit are documented as future work. The local backend doesn't call the cloud.
-- **ChatGPT only.** Targets chatgpt.com. Multi-site support (Claude, Gemini) is future work.
+- **Cloud backend not connected.** The control plane is authenticated (per-org API key) and tested, but the local backend doesn't pull policies or push audit events yet.
+- **ChatGPT and Gemini only.** Other sites (Claude, etc.) are future work.
 - **ONNX not working.** GLiNER2 uses PyTorch mode. ONNX export fails (dynamic control flow). PyTorch is fast enough for the demo.
 - **SpanMarker dropped.** PERSON kill test inconclusive (GLiNER2 at 0.953 F1, CI touches 0.97 but can't confirm). Dropped for simplicity.
 

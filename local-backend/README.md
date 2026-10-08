@@ -77,7 +77,14 @@ curl http://127.0.0.1:8765/health
 | `/api/detect` | POST | Detect PII only (no masking). Returns spans with offsets. |
 | `/api/process_file` | POST | Process a file upload (extract → mask → reconstruct). |
 | `/health` | GET | Health check (no auth). |
-| `/token` | GET | Get per-install token. |
+| `/token` | GET | Get per-install token. Loopback only. |
+
+### Security model
+
+- Binds to `127.0.0.1`; the `Host` header must be a loopback name (blocks DNS rebinding).
+- CORS allows only `chrome-extension://<32-char id>` origins; other `Origin`s are rejected.
+- Every `/api/*` call needs `Authorization: Bearer <per-install token>`. The token lives in
+  `~/.pii_gateway_token.json` (mode `0600`); an empty/missing token never authenticates.
 
 ### Mask endpoint
 
