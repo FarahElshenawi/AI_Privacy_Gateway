@@ -15,6 +15,13 @@ T2 = str(ROOT / "eval" / "tier2_v1.jsonl")
 E2E = [str(ROOT / "eval" / "holdout_v1.jsonl"), str(ROOT / "eval" / "dev_v1.jsonl")]
 
 
+# The frozen eval sets are generated data that is not committed; skip (don't fail) without them.
+pytestmark = pytest.mark.skipif(
+    not all(Path(f).exists() for f in [T2, *E2E, str(ROOT / "eval" / "candidates.example.json")]),
+    reason="bake-off eval data (tier2_v1/holdout_v1/dev_v1/candidates.example) not present",
+)
+
+
 def write_cands(tmp_path, entries):
     p = tmp_path / "c.json"
     p.write_text(json.dumps({"candidates": entries}))
