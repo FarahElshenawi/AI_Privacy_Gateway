@@ -37,6 +37,21 @@ The network layer still checks the upload: a request whose body matches a file t
 just masked (by SHA-256, single use) is passed through; anything else is masked or blocked as
 below. Gemini uses the network path only (no content script yet).
 
+## Replies: real values shown in the page
+
+The model only sees fake values, so its answers contain them. `src/content/demask.js` (ChatGPT
+and Gemini) restores your real values in the text you see, as it streams in: it asks the service
+worker for this conversation's fake→real entries (`/api/mapping` on the local backend, versioned
+so an unchanged conversation costs one tiny call every 2 s), and a MutationObserver rewrites the
+text nodes that contain a known fake. Replacement is longest-fake-first with word boundaries —
+the same rule as the backend's `/api/demask`. Because it works on rendered text, streaming and
+reloaded chat history both work. The composer is never touched.
+
+The popup switch **Show real values in replies** turns it off (new text only; reload to see the
+fakes again). Honest limit: the restored values are written into the page's DOM, so the site's
+own scripts can technically read them. `[REDACTED:TYPE]` placeholders for values that are not
+stored for restoring (e.g. card numbers) stay as they are.
+
 ## Fail closed
 
 If anything goes wrong — body can't be read, backend unreachable or rejects the token,
@@ -67,7 +82,7 @@ npm run lint
 
 ## Limitations
 
-- Responses are **not demasked** yet: replies show the fake/`[REDACTED:…]` values.
+- Replies are restored in the page only (not on the wire); `[REDACTED:TYPE]` values that are not stored stay redacted.
 - Images and scanned PDFs are blocked (no OCR).
 - ChatGPT/Gemini change request formats without notice; re-verify on real traffic after updates.
 
@@ -78,6 +93,7 @@ manifest.json
 src/background/service-worker.js   # CDP interception, classification, backend calls
 src/background/body.js             # pure helpers: body parsing/building, file sniffing
 src/content/file-interceptor.js    # ChatGPT: swap attached files for masked ones (picker/drop/paste)
+src/content/demask.js              # ChatGPT + Gemini: show real values in replies
 src/popup/                         # stats, attach status, diagnostics
-tests/                             # body.test.js, sw.test.js, content.test.js
+tests/                             # body.test.js, sw.test.js, content.test.js, demask.test.js
 ```

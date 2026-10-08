@@ -28,7 +28,7 @@ User types prompt / uploads file in ChatGPT
   ChatGPT responds (with fake values)
          │
          ▼
-  NOTE: Response demasking is NOT yet wired into the extension.
+  Replies are restored in the page by a content script (display only).
   Today the user sees surrogate values (e.g. [REDACTED:CREDIT_CARD]) in responses.
 ```
 
@@ -299,7 +299,8 @@ Files are processed per-segment (page, paragraph, cell) with offset-based edits 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/mask` | POST | Detect + mask PII. Returns `masked_text`, `entity_types`, `safe_to_send`, `degraded`, `coverage_complete`, `uncovered_labels`. |
-| `/api/demask` | POST | Restore real values using vault. (Not wired into extension yet.) |
+| `/api/demask` | POST | Restore real values in a text using the vault (audited, rate-limited). |
+| `/api/mapping` | POST | Versioned fake→real entries of one conversation, used by the extension to restore replies in the page (audited, rate-limited). |
 | `/api/detect` | POST | Detect PII only (no masking). Returns spans with offsets. |
 | `/api/process_file` | POST | Process a file upload (extract → mask → reconstruct). 50 MB cap. |
 | `/health` | GET | Health check + tier status (`tier1`, `tier2`). No auth. |
@@ -449,7 +450,7 @@ AI_Privacy_Gateway/
 
 ## Limitations (Stated Honestly)
 
-- **Response demasking not wired.** User sees `[REDACTED:CREDIT_CARD]` and faker surrogates in ChatGPT responses. The vault + Demasker exist but the extension doesn't call `/api/demask` yet.
+- **Response demasking is display-only.** The extension restores real values in the ChatGPT/Gemini page (via `/api/mapping`) as replies stream in; values that are not stored for restoring (e.g. `[REDACTED:CREDIT_CARD]`) stay redacted, and the restored text lives in the page's DOM.
 - **No OCR.** Scanned PDFs and images are rejected (fail-closed), not silently passed through.
 - **Cloud backend not connected.** The control plane is authenticated (per-org API key) and tested, but the local backend doesn't pull policies or push audit events yet.
 - **ChatGPT and Gemini only.** Other sites (Claude, etc.) are future work.

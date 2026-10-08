@@ -19,7 +19,7 @@
  * PDF / Word / Excel / text via ChatGPT (reserve → blob PUT) and Gemini
  * (multipart and resumable "start" → "upload, finalize").
  *
- * Responses are NOT demasked: the user sees surrogate values in answers.
+ * Replies are demasked in the page (src/content/demask.js), not on the wire; see handleGetMapping.
  */
 
 import {
@@ -34,6 +34,7 @@ import {
 const BACKEND_URL = "http://127.0.0.1:8765";
 const TOKEN_KEY = "pii_gateway_token";
 const PROTECTION_KEY = "protectionEnabled";
+const DEMASK_KEY = "demaskEnabled";   // default ON; popup: "Show real values in replies"
 const MAX_ACTIVITY = 20;
 const MASK_TIMEOUT_MS = 15000;
 const FILE_TIMEOUT_MS = 90000;
@@ -565,6 +566,30 @@ async function handleFilePut(source, params, body) {
  * extension that agrees with the content (the backend needs .docx/.xlsx on a
  * ZIP to treat it as Word/Excel). Throws if the backend refuses or returns nothing.
  */
+/**
+ * Reply to the page-side demasker: the fake→real entries of THIS tab's conversation.
+ * Real values only ever travel backend → this worker → the tab's content script (isolated
+ * world) and are written into the DOM as display text. Off switch: popup "Show real values".
+ */
+async function handleGetMapping(message, sender) {
+  if (!sender.tab || !isChatGPTUrl(sender.tab.url)) {
+    throw new BackendError("Mapping is only available on ChatGPT / Gemini", 400);
+  }
+  const st = await chrome.storage.local.get([PROTECTION_KEY, DEMASK_KEY]);
+  if (st[PROTECTION_KEY] === false || st[DEMASK_KEY] === false) return { success: true, enabled: false };
+
+  const vaultId = await resolveVaultId(sender.tab.id, null);
+  const since = Number.isInteger(message.sinceVersion) ? message.sinceVersion : null;
+  const resp = await backendPost("/api/mapping", () => ({
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversation_id: vaultId, since_version: since }),
+  }), 5000);
+  if (!resp.ok) throw new BackendError(`Mapping request failed (${resp.status})`, resp.status);
+  const data = await resp.json();
+  return { success: true, enabled: true, version: data.version, changed: !!data.changed,
+           entries: Array.isArray(data.entries) ? data.entries : [] };
+}
+
 async function handleSelectedFile(message, sender) {
   const { [PROTECTION_KEY]: enabled } = await chrome.storage.local.get(PROTECTION_KEY);
   if (enabled === false) return { success: true, passthrough: true };
@@ -940,6 +965,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case "PING":
           sendResponse({ success: true, pong: Date.now() });
           break;
+        case "GET_MAPPING": {
+          sendResponse(await handleGetMapping(message, sender));
+          break;
+        }
         case "MASK_SELECTED_FILE": {
           const result = await handleSelectedFile(message, sender);
           sendResponse(result);
