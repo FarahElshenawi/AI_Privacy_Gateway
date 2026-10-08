@@ -1,21 +1,25 @@
 import { useEffect, useState } from "react";
-import { api } from "../api/client";
+import { api, getApiKey, setApiKey } from "../api/client";
 import { ShieldCheck, Server, Key, FileSignature } from "lucide-react";
 
 export function Settings() {
   const [health, setHealth] = useState<string | null>(null);
   const [exportedPolicies, setExportedPolicies] = useState<Record<string, string> | null>(null);
   const [signedPolicy, setSignedPolicy] = useState(true);
+  const [keyInput, setKeyInput] = useState(getApiKey());
+
+  const loadPolicies = () =>
+    api
+      .exportPolicies(1)
+      .then(setExportedPolicies)
+      .catch(() => setExportedPolicies(null));
 
   useEffect(() => {
     api
       .health()
       .then((h) => setHealth(`${h.status} · ${h.version}`))
       .catch(() => setHealth("offline"));
-    api
-      .exportPolicies(1)
-      .then(setExportedPolicies)
-      .catch(() => setExportedPolicies(null));
+    loadPolicies();
   }, []);
 
   return (
@@ -105,17 +109,30 @@ export function Settings() {
           </span>
         </div>
         <p className="text-[13px] text-[var(--body)] mb-3">
-          The cloud backend uses this key to authenticate the local backends
-          that enroll under this org. Stored in the cloud backend&apos;s
-          <code className="mono text-[var(--ink)]"> organizations</code> table —
-          rotate via the cloud backend CLI.
+          Every dashboard request is authenticated with your organization&apos;s
+          API key. It is kept for this browser tab only (cleared when the tab
+          closes). Create or rotate keys with
+          <code className="mono text-[var(--ink)]"> python -m app.admin create-org</code> on the
+          cloud backend.
         </p>
-        <code className="block mono text-[12px] text-[var(--body)] bg-[var(--bg)] border border-[var(--border)] rounded-lg p-3 break-all">
-          sk-doppel-••••••••••••••••••••••••••••••••
-        </code>
-        <p className="text-[11px] text-[var(--muted)] mt-2">
-          Hidden by default — visible only to org admins.
-        </p>
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setApiKey(keyInput);
+            loadPolicies();
+          }}
+        >
+          <input
+            type="password"
+            autoComplete="off"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder="Organization API key"
+            className="flex-1 mono text-[12px] bg-[var(--bg)] border border-[var(--border)] rounded-lg p-3"
+          />
+          <button type="submit" className="btn-primary px-4 rounded-lg text-[13px]">Save</button>
+        </form>
       </div>
 
       {/* Signed policy toggle */}

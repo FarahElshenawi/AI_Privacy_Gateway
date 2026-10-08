@@ -85,9 +85,10 @@ The cloud backend runs entirely on the customer's infrastructure. Doppel
 
 ## API endpoints
 
-All endpoints return JSON. Authenticated via the org's `api_key` header for
-production use (the dashboard currently uses default `org_id=1` for single-tenant
-demo; add auth when you have multiple orgs).
+All endpoints return JSON. Every `/api/*` route requires the organization's API key
+(`X-API-Key: <key>` or `Authorization: Bearer <key>`); missing/invalid keys get `401`.
+The organization is derived from the key, so one org can never see or change another's
+data. Only a SHA-256 digest of each key is stored. Only `/health` and `/` are public.
 
 ### Health
 
@@ -350,27 +351,18 @@ The whole thing takes 30-60 minutes.
 Once the cloud backend is running on their server, create their organization:
 
 ```bash
-curl -X POST https://doppel-cloud.NEWCOMPANY.com/api/orgs \
-  -H "Content-Type: application/json" \
-  -d '{"name": "NewCompany Inc."}'
-# → {"id": 2, "api_key": "sk-doppel-a1b2c3...", "name": "NewCompany Inc."}
+python -m app.admin create-org "NewCompany Inc."
+# organization id=2 name='NewCompany Inc.'
+# API key (shown once): <key>
 ```
 
-(Or just `INSERT` directly into the `organizations` table — there's no
-`/api/orgs` endpoint in the current code; add one when you have multiple
-orgs.)
-
-For single-org deployments (the common case), just edit the seeded default:
-
-```bash
-sqlite3 cloud_backend.db
-> UPDATE organizations SET name = 'NewCompany Inc.' WHERE id = 1;
-> .quit
-```
+The key is shown once; only its hash is stored. For a single-org deployment, set
+`CLOUD_ADMIN_API_KEY` (>= 24 chars) before first boot — or leave it unset and a key is
+generated and printed once in the server log. Setting it later rotates the default org's key.
 
 ### 2. Distribute their `api_key`
 
-The org's `api_key` (a 64-char hex string) authenticates their local backends.
+The org's `api_key` (shown once at creation) authenticates their local backends.
 Hand it to them via a secure channel — never commit it, never email it.
 
 The customer adds it to each employee's local backend `.env`:
@@ -381,8 +373,7 @@ CLOUD_URL=https://doppel-cloud.NEWCOMPANY.com
 ```
 
 Their local backends will use it to authenticate when pulling policies and
-pushing audit events. (Note: the current cloud backend doesn't enforce auth
-yet — add middleware for production use.)
+pushing audit events. The cloud backend enforces this key on every API call.
 
 ### 3. Configure their policies
 
@@ -397,14 +388,14 @@ are inherited. If the customer wants different rules:
 # Override PERSON → redact (instead of faker) for NewCompany
 curl -X PUT https://doppel-cloud.NEWCOMPANY.com/api/policies/1 \
   -H "Content-Type: application/json" \
-  -H "X-Api-Key: sk-doppel-a1b2c3..." \
+  -H "X-API-Key: <your key>" \
   -d '{"action": "redact"}'
 
 # Add a custom policy for a customer-specific entity type
 curl -X POST https://doppel-cloud.NEWCOMPANY.com/api/policies \
   -H "Content-Type: application/json" \
-  -H "X-Api-Key: sk-doppel-a1b2c3..." \
-  -d '{"org_id": 1, "entity_type": "INTERNAL_EMPLOYEE_ID", "action": "redact"}'
+  -H "X-API-Key: <your key>" \
+  -d '{"entity_type": "INTERNAL_EMPLOYEE_ID", "action": "redact"}'
 ```
 
 ### 4. Point their local backends at this cloud
