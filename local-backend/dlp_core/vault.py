@@ -17,6 +17,7 @@ import hmac
 import os
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from hashlib import sha256
 from typing import Callable, Optional, Protocol
@@ -58,11 +59,14 @@ class _Entry:
     fake: str
     sealed_real: bytes
     expires_at: float
+    idx: bytes                # HMAC(label, real): key of this entry in by_real
 
 
 @dataclass(slots=True)
 class _Conversation:
-    by_fake: dict[str, _Entry] = field(default_factory=dict)
+    # Insertion-ordered. Every entry gets the same TTL on a monotonic clock, so expiry order ==
+    # insertion order and the expired entries are always a prefix (see InMemoryVault._live).
+    by_fake: "OrderedDict[str, _Entry]" = field(default_factory=OrderedDict)
     by_real: dict[bytes, str] = field(default_factory=dict)   # HMAC(label, real) -> fake
     version: int = 0
 
@@ -91,17 +95,25 @@ class InMemoryVault:
         return hmac.digest(self._hmac_key, label.encode() + b"\0" + real.encode("utf-8"), sha256)
 
     def _live(self, conv_id: str) -> Optional[_Conversation]:
-        """Return the conversation with expired entries removed (caller holds lock)."""
+        """Return the conversation with expired entries removed (caller holds lock).
+
+        Entries share one TTL and the clock is monotonic, so they expire in insertion order:
+        pop expired entries from the front and stop at the first live one. Cost is O(expired),
+        not O(entries), so a lookup stays cheap however large a file's mapping gets.
+        """
         conv = self._convs.get(conv_id)
         if conv is None:
             return None
         now = self._clock()
-        dead = [f for f, e in conv.by_fake.items() if e.expires_at <= now]
-        if dead:
-            dead_set = set(dead)
-            for f in dead:
-                del conv.by_fake[f]
-            conv.by_real = {k: v for k, v in conv.by_real.items() if v not in dead_set}
+        removed = False
+        while conv.by_fake:
+            fake, entry = next(iter(conv.by_fake.items()))
+            if entry.expires_at > now:
+                break
+            del conv.by_fake[fake]
+            conv.by_real.pop(entry.idx, None)
+            removed = True
+        if removed:
             conv.version += 1
         return conv
 
@@ -132,7 +144,7 @@ class InMemoryVault:
             if len(conv.by_fake) >= self._cap:
                 raise VaultCapacityError("conversation entry limit reached")
             conv.by_fake[fake] = _Entry(
-                fake, self._sealer.seal(real.encode("utf-8")), self._clock() + self._ttl)
+                fake, self._sealer.seal(real.encode("utf-8")), self._clock() + self._ttl, idx)
             conv.by_real[idx] = fake
             conv.version += 1
 
