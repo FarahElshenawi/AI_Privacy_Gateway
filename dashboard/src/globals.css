@@ -259,6 +259,11 @@
   border-color: var(--border);
   color: var(--body);
 }
+.chip.block {
+  background: rgba(220, 38, 38, 0.12);
+  border-color: rgba(220, 38, 38, 0.4);
+  color: #ef4444;
+}
 
 /* Status dot for live data */
 .status-dot {

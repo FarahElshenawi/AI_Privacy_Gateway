@@ -151,7 +151,17 @@ def create_organization(session, name: str, api_key: str | None = None) -> tuple
 
 
 def seed_defaults(engine):
-    """Seed the default organization (+ its API key) and default policies."""
+    """Seed default organization and ensure all canonical policies exist.
+    
+    Additive and idempotent:
+    - Creates default organization if missing.
+    - Preserves existing administrator-configured policies without resetting actions.
+    - Migrates legacy SSN -> US_SSN while preserving custom action/version.
+    - Removes legacy static IPV4/IPV6 default records.
+    - Adds missing canonical policies from CANONICAL_DEFAULT_POLICIES.
+    """
+    from app.defaults import CANONICAL_DEFAULT_POLICIES
+
     session = get_session(engine)
     try:
         env_key = os.getenv("CLOUD_ADMIN_API_KEY")
@@ -159,11 +169,13 @@ def seed_defaults(engine):
             # Fail closed: never start with a guessable admin key.
             raise RuntimeError(f"CLOUD_ADMIN_API_KEY must be at least {MIN_API_KEY_LEN} characters")
 
-        org = session.query(Organization).filter(Organization.id == 1).first()
+        org = session.query(Organization).order_by(Organization.id.asc()).first()
         if org is None:
             key = env_key or secrets.token_urlsafe(32)
-            session.add(Organization(id=1, name="Default Organization", api_key=hash_api_key(key)))
+            org = Organization(name="Default Organization", api_key=hash_api_key(key))
+            session.add(org)
             session.commit()
+            session.refresh(org)
             if not env_key:
                 # No key configured: show the generated one ONCE (only its hash is stored).
                 print("\n" + "=" * 70 +
@@ -176,29 +188,38 @@ def seed_defaults(engine):
             org.api_key = hash_api_key(env_key)    # rotate/recover (also migrates old plaintext keys)
             session.commit()
 
-        # Check if defaults already exist
-        if session.query(Policy).filter(Policy.is_default == True).first():  # noqa: E712
-            return
+        # Query all existing policies for the default organization
+        existing_policies = {
+            p.entity_type: p
+            for p in session.query(Policy).filter(Policy.org_id == org.id).all()
+        }
 
-        defaults = [
-            ("PERSON", "faker"),
-            ("EMAIL", "faker"),
-            ("PHONE_NUMBER", "faker"),
-            ("ORGANIZATION", "faker"),
-            ("ADDRESS", "faker"),
-            ("USERNAME", "faker"),
-            ("CREDIT_CARD", "redact"),
-            ("API_KEY", "redact"),
-            ("JWT", "redact"),
-            ("PEM_BLOCK", "redact"),
-            ("IBAN", "redact"),
-            ("SSN", "redact"),
-            ("URL", "keep"),
-            ("IPV4", "keep"),
-            ("IPV6", "keep"),
-        ]
-        for entity_type, action in defaults:
-            session.add(Policy(org_id=1, entity_type=entity_type, action=action, is_default=True))
+        # 1. Migrate legacy SSN -> US_SSN preserving existing action and configuration
+        if "SSN" in existing_policies:
+            ssn_policy = existing_policies["SSN"]
+            if "US_SSN" not in existing_policies:
+                ssn_policy.entity_type = "US_SSN"
+                existing_policies["US_SSN"] = ssn_policy
+            else:
+                session.delete(ssn_policy)
+            del existing_policies["SSN"]
+
+        # 2. Clean up legacy static IP records (IP routing is value-dependent)
+        for ip_type in ("IPV4", "IPV6"):
+            if ip_type in existing_policies and existing_policies[ip_type].is_default:
+                session.delete(existing_policies[ip_type])
+                del existing_policies[ip_type]
+
+        # 3. Add any missing canonical policies without touching existing ones
+        for entity_type, default_action in CANONICAL_DEFAULT_POLICIES.items():
+            if entity_type not in existing_policies:
+                session.add(Policy(
+                    org_id=org.id,
+                    entity_type=entity_type,
+                    action=default_action,
+                    is_default=True,
+                ))
+
         session.commit()
     finally:
         session.close()

@@ -1,12 +1,15 @@
 """One organization must never see or change another's data."""
 
 
+from app.defaults import CANONICAL_DEFAULT_POLICIES
+
+
 def _policy_id(client, headers, etype):
     return next(p["id"] for p in client.get("/api/policies", headers=headers).json() if p["entity_type"] == etype)
 
 
 def test_orgs_see_only_their_own_policies(client, A, B):
-    assert len(client.get("/api/policies", headers=A).json()) == 15
+    assert len(client.get("/api/policies", headers=A).json()) == len(CANONICAL_DEFAULT_POLICIES)
     assert client.get("/api/policies", headers=B).json() == []
     assert client.get("/api/policies/PERSON", headers=B).status_code == 404
     assert client.get("/api/policies/export", headers=B).json() == {}
@@ -14,7 +17,7 @@ def test_orgs_see_only_their_own_policies(client, A, B):
 
 def test_org_id_query_param_cannot_switch_tenants(client, A, B):
     assert client.get("/api/policies?org_id=1", headers=B).json() == []
-    assert len(client.get("/api/policies?org_id=2", headers=A).json()) == 15
+    assert len(client.get("/api/policies?org_id=2", headers=A).json()) == len(CANONICAL_DEFAULT_POLICIES)
 
 
 def test_cannot_update_or_delete_another_orgs_policy(client, A, B):

@@ -1,10 +1,11 @@
 import pytest
+from app.defaults import CANONICAL_DEFAULT_POLICIES
 
 
 def test_export_route_is_not_captured_as_an_entity_type(client, A):
     """Regression: the dashboard calls /api/policies/export, which used to hit /{entity_type} -> 404."""
     r = client.get("/api/policies/export", headers=A)
-    assert r.status_code == 200 and r.json()["PERSON"] == "faker" and len(r.json()) == 15
+    assert r.status_code == 200 and r.json()["PERSON"] == "faker" and len(r.json()) == len(CANONICAL_DEFAULT_POLICIES)
     assert client.get("/api/policies/export/all", headers=A).json() == r.json()
 
 

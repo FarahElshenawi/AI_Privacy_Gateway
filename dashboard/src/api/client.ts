@@ -65,11 +65,13 @@ async function request<T>(
 
 // ===== Types =====
 
+export type PolicyAction = "faker" | "redact" | "keep" | "block";
+
 export interface Policy {
   id: number;
   org_id: number;
   entity_type: string;
-  action: "faker" | "redact" | "keep";
+  action: PolicyAction;
   is_default: boolean;
   version: number;
 }
@@ -77,11 +79,11 @@ export interface Policy {
 export interface PolicyCreate {
   org_id?: number;
   entity_type: string;
-  action: "faker" | "redact" | "keep";
+  action: PolicyAction;
 }
 
 export interface PolicyUpdate {
-  action?: "faker" | "redact" | "keep";
+  action?: PolicyAction;
   entity_type?: string;
 }
 
@@ -147,6 +149,21 @@ export const api = {
   /** Export all policies as JSON (for the local backend pull). */
   exportPolicies: (orgId = 1) =>
     request<Record<string, string>>(`/api/policies/export?org_id=${orgId}`),
+
+  /** Apply exported policies directly to the running local-backend gateway. */
+  syncPoliciesToLocalGateway: async (localBaseUrl = "http://127.0.0.1:8765") => {
+    const exported = await api.exportPolicies();
+    const res = await fetch(`${localBaseUrl}/api/policies/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ OVERRIDES: exported }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to sync policies to local gateway");
+    }
+    return res.json() as Promise<{ status: string; applied: number }>;
+  },
 
   // ----- Audit -----
 

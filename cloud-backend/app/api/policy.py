@@ -20,9 +20,16 @@ from app.db import Organization, Policy, get_db
 
 router = APIRouter(prefix="/api/policies", tags=["policies"])
 
-Action = Literal["faker", "redact", "keep"]
+Action = Literal["faker", "redact", "keep", "block"]
 EntityType = Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True,
                                               pattern=r"^[A-Za-z][A-Za-z0-9_]{0,63}$")]
+
+IMMUTABLE_CRITICAL_SECRETS = frozenset({
+    "API_KEY", "AUTH_TOKEN", "JWT", "PRIVATE_KEY", "CLOUD_SECRET",
+    "CONNECTION_STRING", "PASSWORD", "RECOVERY_CODE", "CREDIT_CARD", "CVV",
+    "US_SSN", "TAX_ID", "MEDICAL_RECORD_NUMBER", "HEALTH_INSURANCE_ID",
+    "GOVERNMENT_ID", "PASSPORT_NUMBER", "DRIVERS_LICENSE_NUMBER", "SSN",
+})
 
 
 class PolicyCreate(BaseModel):
@@ -91,6 +98,12 @@ def get_policy(entity_type: str, org: Organization = Depends(require_org), db=De
 @router.post("", response_model=PolicyResponse, status_code=201)
 def create_policy(body: PolicyCreate, org: Organization = Depends(require_org), db=Depends(get_db)):
     """Create a new policy."""
+    if body.entity_type in IMMUTABLE_CRITICAL_SECRETS and body.action == "keep":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Security violation: critical secret '{body.entity_type}' cannot be configured with Action 'keep'",
+        )
+
     existing = db.query(Policy).filter(
         Policy.org_id == org.id, Policy.entity_type == body.entity_type).first()
     if existing:
@@ -107,6 +120,15 @@ def update_policy(policy_id: int, body: PolicyUpdate,
                   org: Organization = Depends(require_org), db=Depends(get_db)):
     """Update a policy."""
     policy = _own_policy(db, org, policy_id)
+
+    target_type = body.entity_type or policy.entity_type
+    target_action = body.action or policy.action
+
+    if target_type in IMMUTABLE_CRITICAL_SECRETS and target_action == "keep":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Security violation: critical secret '{target_type}' cannot be configured with Action 'keep'",
+        )
 
     if body.entity_type and body.entity_type != policy.entity_type:
         clash = db.query(Policy).filter(

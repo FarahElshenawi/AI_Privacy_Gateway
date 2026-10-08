@@ -20,6 +20,7 @@ from app.api.detect import router as detect_router
 from app.api.mask import router as mask_router
 from app.api.demask import router as demask_router
 from app.api.process_file import router as file_router
+from app.api.policies import router as policies_router
 from app.pipeline.engine import tier_status, warm_tier2
 from app.security.auth import get_install_token
 from app.security.origin_check import check_origin
@@ -47,11 +48,16 @@ app = FastAPI(
 # extension pages. `check_origin` independently rejects any non-extension Origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_origin_regex=r"^chrome-extension://[a-p]{32}$",
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
 
 # Wire routers
@@ -59,6 +65,7 @@ app.include_router(detect_router, prefix="/api", tags=["detection"])
 app.include_router(mask_router, prefix="/api", tags=["masking"])
 app.include_router(demask_router, prefix="/api", tags=["restoration"])
 app.include_router(file_router, prefix="/api", tags=["multimodal"])
+app.include_router(policies_router, prefix="/api", tags=["policies"])
 
 
 @app.get("/health")
