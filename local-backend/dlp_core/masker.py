@@ -15,16 +15,23 @@ Fail-closed behaviour:
   * Invalid, unsorted or overlapping spans -> MaskingError (nothing is sent).
   * FAKER span with no provider, or no collision-free fake after N tries ->
     falls back to REDACT. A leak is never the fallback.
+  * BLOCK span -> raises RequestBlockedError immediately before any vault writes.
+  * REDACT + STORE_FOR_DEMASKING generates unique [[REDACTED:LABEL:xxxx]] placeholder
+    and stores it in the vault so bijective Demasker can restore it.
+  * REDACT + NO_STORE uses [REDACTED:{label}] or [[REDACTED]] with zero vault retention.
+  * Audit records emitted via emit_audit() with zero secret leakage.
   * MaskResult never contains real values; they go only to the sealed vault.
 """
 from __future__ import annotations
 
 import re
+import secrets
 from dataclasses import dataclass
 from typing import Callable, Optional, Sequence
 
+from .audit import build_audit_record, emit_audit
 from .merge import MergedSpan
-from .policy import Action
+from .policy import Action, StoragePolicy, route_label
 from .span import Evidence
 from .vault import InMemoryVault, VaultCollisionError
 
@@ -33,6 +40,15 @@ SurrogateProvider = Callable[[str, str], str]   # (label, real_value) -> candida
 
 class MaskingError(Exception):
     pass
+
+
+class RequestBlockedError(Exception):
+    """A BLOCK decision: the request must not be sent to the external LLM."""
+
+    def __init__(self, entity_type: str, rule: str):
+        super().__init__(f"request blocked by policy ({entity_type}, {rule})")
+        self.entity_type = entity_type
+        self.rule = rule
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,19 +90,45 @@ class OffsetMasker:
     def mask(self, text: str, spans: Sequence[MergedSpan], conversation_id: str) -> MaskResult:
         self._validate(text, spans)
 
-        # Forward pass: decide each replacement (first occurrence gets first fake).
+        # Pass 1: Check for BLOCK decisions and emit audit logs.
+        # If ANY span resolves to BLOCK, raise RequestBlockedError immediately
+        # before any vault write or token emission happens.
+        for ms in spans:
+            real = text[ms.start:ms.end]
+            decision = route_label(ms.label, real)
+            emit_audit(build_audit_record(decision, conversation_id, len(real)))
+            if ms.action is Action.BLOCK or decision.action is Action.BLOCK:
+                raise RequestBlockedError(decision.label, decision.rule)
+
+        # Pass 2: Decide replacements honoring StoragePolicy and Actions.
         reps: list[str] = []
         applied: list[tuple[Action, bool]] = []
         for ms in spans:
             real = text[ms.start:ms.end]
+            decision = route_label(ms.label, real)
+
             if ms.action is Action.FAKER:
                 got = self._fake_for(text, conversation_id, ms.label, real)
                 if got is not None:
                     reps.append(got[0])
                     applied.append((Action.FAKER, got[1]))
                     continue
-            reps.append(self._template.format(label=ms.label))   # REDACT or degraded FAKER
-            applied.append((Action.REDACT, False))
+                # Degradation fallback: FAKER with no fake -> REDACT
+                # Fall through to redaction handling below
+
+            # Action.REDACT or degraded FAKER:
+            # Stored redaction applies when the entity was originally a REDACT action
+            # that is configured to be stored (e.g. IBAN, INTERNAL_URL).
+            # A degraded FAKER (e.g. PERSON when Faker fails) simply falls back to the template.
+            if ms.action is Action.REDACT and decision.storage is StoragePolicy.STORE_FOR_DEMASKING:
+                # Need unique placeholder stored in vault so bijective demasking works
+                placeholder, reused = self._unique_redaction_for(conversation_id, ms.label, real)
+                reps.append(placeholder)
+                applied.append((Action.REDACT, reused))
+            else:
+                # NO_STORE or degraded FAKER: plain template, zero vault entry
+                reps.append(self._template.format(label=ms.label))
+                applied.append((Action.REDACT, False))
 
         # Right-to-left assembly in one pass: untouched tails and replacements are
         # collected from the end, then reversed. O(n) and offset-stable.
@@ -142,6 +184,20 @@ class OffsetMasker:
             return cand, False
         return None
 
+    def _unique_redaction_for(self, conv: str, label: str, real: str) -> tuple[str, bool]:
+        existing = self._vault.lookup_fake(conv, label, real)
+        if existing is not None:
+            return existing, True
+        # Generate unique [[REDACTED:LABEL:token]] candidate
+        while True:
+            candidate = f"[[REDACTED:{label}:{secrets.token_hex(2)}]]"
+            if not self._vault.fake_in_use(conv, candidate):
+                try:
+                    self._vault.put(conv, label, real, candidate)
+                    return candidate, False
+                except VaultCollisionError:
+                    continue
+
 
 class Demasker:
     """Restore real values in an LLM response: one pass, longest fake first."""
@@ -175,6 +231,7 @@ class Demasker:
             return None, {}
         alts = []
         for fake in sorted(lookup, key=len, reverse=True):
+            # If fake starts/ends with special bracket chars like '[', boundary check is not \w
             left = r"(?<!\w)" if (fake[0].isalnum() or fake[0] == "_") else ""
             right = r"(?!\w)" if (fake[-1].isalnum() or fake[-1] == "_") else ""
             alts.append(f"{left}{re.escape(fake)}{right}")

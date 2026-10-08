@@ -90,7 +90,8 @@ class MergeEngine:
                 # A detector disagreeing with the text is a bug; fail closed.
                 raise ValueError(
                     f"span [{sp.start},{sp.end}) from {sp.source!r} exceeds text length {n}")
-            action = self._policy.action_for(sp.label)
+            val = text[sp.start:sp.end] if text is not None else None
+            action = self._policy.action_for(sp.label, val)
             if action is Action.KEEP:
                 continue
             floor = self._min.get(sp.label)
