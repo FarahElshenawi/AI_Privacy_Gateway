@@ -6,6 +6,8 @@ from .policy import (
     RoutingEntry, PolicyEntry, RoutingDecision, ROUTING_TABLE, ALIASES,
     normalize_label, normalize_type, is_publicly_routable_ip,
     route_label, route_entity, route_entities, get_routing_entry, get_policy, should_block,
+    PolicyConfigError, configure_policy_override, load_policy_config, load_policy_config_file,
+    reset_policy_to_defaults, get_active_routing_table,
 )
 from .merge import MergeEngine, MergedSpan
 from .vault import InMemoryVault, FernetSealer, Sealer, VaultCollisionError, VaultCapacityError
@@ -25,6 +27,8 @@ __all__ = [
     "RoutingEntry", "PolicyEntry", "RoutingDecision", "ROUTING_TABLE", "ALIASES",
     "normalize_label", "normalize_type", "is_publicly_routable_ip",
     "route_label", "route_entity", "route_entities", "get_routing_entry", "get_policy", "should_block",
+    "PolicyConfigError", "configure_policy_override", "load_policy_config", "load_policy_config_file",
+    "reset_policy_to_defaults", "get_active_routing_table",
     "MergeEngine", "MergedSpan",
     "InMemoryVault", "FernetSealer", "Sealer", "VaultCollisionError", "VaultCapacityError",
     "OffsetMasker", "Demasker", "MaskResult", "MaskedSpanInfo", "MaskingError", "RequestBlockedError",

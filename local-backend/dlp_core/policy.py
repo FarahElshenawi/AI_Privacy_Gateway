@@ -287,6 +287,178 @@ def _make_decision(canonical: str, entry: RoutingEntry, rule: str) -> RoutingDec
     )
 
 
+# Active (configurable) routing table. Initialized from default ROUTING_TABLE.
+_ACTIVE_ROUTING_TABLE: dict[str, RoutingEntry] = dict(ROUTING_TABLE)
+
+# Sensitive credential / secret labels that cannot be downgraded to KEEP
+_IMMUTABLE_CRITICAL_SECRETS: frozenset[str] = frozenset({
+    "API_KEY", "AUTH_TOKEN", "JWT", "PRIVATE_KEY", "CLOUD_SECRET",
+    "CONNECTION_STRING", "PASSWORD", "RECOVERY_CODE", "CREDIT_CARD", "CVV"
+})
+
+
+class PolicyConfigError(ValueError):
+    """Raised when policy configuration or override is invalid/unsafe."""
+    pass
+
+
+def validate_and_create_entry(
+    action: Action | str,
+    risk_level: Optional[RiskLevel | str] = None,
+    entity_category: Optional[EntityCategory | str] = None,
+    storage: Optional[StoragePolicy | str] = None,
+) -> RoutingEntry:
+    """Validate and build a RoutingEntry from string/enum values."""
+    if isinstance(action, str):
+        act_str = action.strip().upper()
+        if act_str in ("MASK", "FAKER", "PSEUDONYMIZE"):
+            act_enum = Action.FAKER
+        elif act_str in ("REDACT", "REDACTION"):
+            act_enum = Action.REDACT
+        elif act_str in ("KEEP", "NONE"):
+            act_enum = Action.KEEP
+        elif act_str in ("BLOCK", "REJECTION"):
+            act_enum = Action.BLOCK
+        else:
+            raise PolicyConfigError(f"Unknown policy action: {action}")
+    else:
+        act_enum = Action(action)
+
+    # Risk level
+    if risk_level is None:
+        risk_enum = RiskLevel.MEDIUM
+    elif isinstance(risk_level, str):
+        try:
+            risk_enum = RiskLevel[risk_level.strip().upper()]
+        except KeyError:
+            raise PolicyConfigError(f"Unknown risk level: {risk_level}")
+    else:
+        risk_enum = RiskLevel(risk_level)
+
+    # Entity category
+    if entity_category is None:
+        cat_enum = EntityCategory.UNKNOWN
+    elif isinstance(entity_category, str):
+        try:
+            cat_enum = EntityCategory[entity_category.strip().upper()]
+        except KeyError:
+            raise PolicyConfigError(f"Unknown entity category: {entity_category}")
+    else:
+        cat_enum = EntityCategory(entity_category)
+
+    # Storage policy
+    if storage is None:
+        storage_enum = StoragePolicy.STORE_FOR_DEMASKING if act_enum is Action.FAKER else StoragePolicy.NO_STORE
+    elif isinstance(storage, str):
+        st_str = storage.strip().upper()
+        if st_str in ("STORE", "STORE_FOR_DEMASKING", "TRUE", "YES", "1"):
+            storage_enum = StoragePolicy.STORE_FOR_DEMASKING
+        elif st_str in ("NO_STORE", "FALSE", "NO", "0"):
+            storage_enum = StoragePolicy.NO_STORE
+        else:
+            raise PolicyConfigError(f"Unknown storage policy: {storage}")
+    else:
+        storage_enum = StoragePolicy(storage)
+
+    return RoutingEntry(
+        action=act_enum,
+        risk_level=risk_enum,
+        entity_category=cat_enum,
+        storage=storage_enum,
+    )
+
+
+def configure_policy_override(
+    label: str,
+    action: Action | str,
+    *,
+    storage: Optional[StoragePolicy | str] = None,
+    risk_level: Optional[RiskLevel | str] = None,
+    entity_category: Optional[EntityCategory | str] = None,
+) -> None:
+    """Configure a policy override for a specific entity type at runtime.
+
+    Validates that high-risk authentication credentials cannot be downgraded
+    to KEEP.
+    """
+    canonical = normalize_label(label)
+    if not canonical:
+        raise PolicyConfigError("Entity label cannot be empty")
+
+    new_entry = validate_and_create_entry(action, risk_level, entity_category, storage)
+
+    # Security constraint: Secrets cannot be configured as KEEP
+    if canonical in _IMMUTABLE_CRITICAL_SECRETS and new_entry.action is Action.KEEP:
+        raise PolicyConfigError(
+            f"Security violation: critical secret '{canonical}' cannot be configured with Action.KEEP"
+        )
+
+    _ACTIVE_ROUTING_TABLE[canonical] = new_entry
+
+
+def load_policy_config(config_data: Mapping) -> int:
+    """Load policy overrides from a dictionary (e.g. parsed JSON/YAML/dict).
+
+    Format:
+    {
+        "OVERRIDES": {
+            "ORGANIZATION": "REDACT",
+            "SENSITIVE_DATE": {"action": "KEEP"},
+            "CUSTOM_ID": {"action": "REDACT", "storage": "STORE_FOR_DEMASKING", "risk_level": "HIGH"}
+        }
+    }
+
+    Returns:
+        Number of overrides successfully applied.
+    """
+    overrides = config_data.get("OVERRIDES", config_data)
+    if not isinstance(overrides, Mapping):
+        raise PolicyConfigError("Policy config must be a dictionary or contain 'OVERRIDES' mapping")
+
+    applied = 0
+    for label, conf in overrides.items():
+        if isinstance(conf, str):
+            configure_policy_override(label, conf)
+        elif isinstance(conf, Mapping):
+            action = conf.get("action")
+            if not action:
+                raise PolicyConfigError(f"Missing 'action' in override for '{label}'")
+            configure_policy_override(
+                label,
+                action,
+                storage=conf.get("storage"),
+                risk_level=conf.get("risk_level"),
+                entity_category=conf.get("entity_category"),
+            )
+        else:
+            raise PolicyConfigError(f"Invalid override format for '{label}'")
+        applied += 1
+    return applied
+
+
+def load_policy_config_file(path_or_str: str) -> int:
+    """Load policy overrides from a JSON configuration file."""
+    import json
+    from pathlib import Path
+    p = Path(path_or_str)
+    if not p.is_file():
+        raise FileNotFoundError(f"Policy configuration file not found: {path_or_str}")
+    with p.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    return load_policy_config(data)
+
+
+def reset_policy_to_defaults() -> None:
+    """Reset the active routing table back to built-in defaults."""
+    _ACTIVE_ROUTING_TABLE.clear()
+    _ACTIVE_ROUTING_TABLE.update(ROUTING_TABLE)
+
+
+def get_active_routing_table() -> Mapping[str, RoutingEntry]:
+    """Return a read-only view of the currently active routing table."""
+    return dict(_ACTIVE_ROUTING_TABLE)
+
+
 def route_label(label: str, value: Optional[str] = None) -> RoutingDecision:
     """Return the deterministic routing decision for a label/value pair."""
     canonical = normalize_label(label)
@@ -296,10 +468,12 @@ def route_label(label: str, value: Optional[str] = None) -> RoutingDecision:
             return _make_decision(canonical, _IP_KEEP, "ip:globally-reachable")
         return _make_decision(canonical, _IP_REDACT, "ip:non-global-or-unparseable")
 
-    entry = ROUTING_TABLE.get(canonical)
+    # Look up in active table first (honors defaults or configured overrides)
+    entry = _ACTIVE_ROUTING_TABLE.get(canonical)
     if entry is None:
         return _make_decision(canonical, _UNKNOWN, "default:unknown-type")
-    return _make_decision(canonical, entry, f"policy:{canonical}")
+    rule = f"override:{canonical}" if canonical in _ACTIVE_ROUTING_TABLE and _ACTIVE_ROUTING_TABLE[canonical] != ROUTING_TABLE.get(canonical) else f"policy:{canonical}"
+    return _make_decision(canonical, entry, rule)
 
 
 def route_entity(entity: Mapping) -> RoutingDecision:
@@ -319,7 +493,7 @@ def get_routing_entry(label: Optional[str]) -> RoutingEntry:
     canonical = normalize_label(label)
     if canonical in _IP_LABELS:
         return _IP_REDACT
-    return ROUTING_TABLE.get(canonical, _UNKNOWN)
+    return _ACTIVE_ROUTING_TABLE.get(canonical, _UNKNOWN)
 
 
 get_policy = get_routing_entry  # Role 4 alias
