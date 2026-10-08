@@ -43,3 +43,8 @@ local-backend/eval/*
 
 local-backend/models/*.onnx
 local-backend/models/*.onnx.data
+
+local-backend/dlp_core/eval/holdout_v1.json
+local-backend/dlp_core/eval/
+eval/
+.next/
