@@ -13,7 +13,7 @@ from dlp_core import DetectionPipeline, DetectorSpec, UnavailableDetector
 from dlp_core.tier1 import Tier1Engine
 
 origin_check.ALLOWED_HOSTS = origin_check.ALLOWED_HOSTS | {"testclient"}
-client = TestClient(app)
+client = TestClient(app, base_url="http://127.0.0.1:8765")
 AUTH = {"Authorization": f"Bearer {get_install_token()}"}
 
 

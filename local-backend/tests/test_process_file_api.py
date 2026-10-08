@@ -9,7 +9,7 @@ from app.security import origin_check
 from app.security.auth import get_install_token
 
 origin_check.ALLOWED_HOSTS = origin_check.ALLOWED_HOSTS | {"testclient"}
-client = TestClient(app)
+client = TestClient(app, base_url="http://127.0.0.1:8765")
 AUTH = {"Authorization": f"Bearer {get_install_token()}"}
 
 

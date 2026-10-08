@@ -11,7 +11,7 @@ from app.security import origin_check
 # covered in test_security.py.
 origin_check.ALLOWED_HOSTS = origin_check.ALLOWED_HOSTS | {"testclient"}
 
-client = TestClient(app)
+client = TestClient(app, base_url="http://127.0.0.1:8765")
 TOKEN = get_install_token()
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 

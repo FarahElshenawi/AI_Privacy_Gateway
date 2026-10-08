@@ -40,17 +40,18 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS — allow the extension (which runs on chatgpt.com or chat.openai.com)
+# CORS — ONLY browser extensions. Web pages (chatgpt.com, any site) must never be able to read
+# responses from this backend: that would let page script fetch /token and then call /api/demask
+# to turn surrogate names back into real ones. The extension's service worker has host
+# permission for this origin and is exempt from CORS anyway; the regex just also covers
+# extension pages. `check_origin` independently rejects any non-extension Origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://chatgpt.com",
-        "https://chat.openai.com",
-        "http://localhost:3000",
-    ],
-    allow_credentials=True,
+    allow_origins=[],
+    allow_origin_regex=r"^chrome-extension://[a-p]{32}$",
+    allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Wire routers

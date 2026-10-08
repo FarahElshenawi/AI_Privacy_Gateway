@@ -69,3 +69,115 @@ class TestOriginCheck:
         with pytest.raises(HTTPException) as exc:
             origin_check.check_origin(Request(scope))
         assert exc.value.status_code == 403
+
+
+# ── web pages must not be able to call the backend (token theft / demask) ──────────────
+
+import stat
+import sys
+
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+EXT = "chrome-extension://abcdefghijklmnopabcdefghijklmnop"
+
+
+def _req(headers: dict[str, str], client_host: str = "127.0.0.1") -> Request:
+    scope = {
+        "type": "http", "method": "GET", "path": "/token", "client": (client_host, 1),
+        "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+    }
+    return Request(scope)
+
+
+class TestWebPagesAreRejected:
+    @pytest.mark.parametrize("origin", [
+        "https://chatgpt.com", "https://chat.openai.com", "https://gemini.google.com",
+        "http://localhost:3000", "https://evil.example", "null",
+    ])
+    def test_web_origins_rejected(self, origin):
+        with pytest.raises(HTTPException) as exc:
+            origin_check.check_origin(_req({"Origin": origin, "Host": "127.0.0.1:8765"}))
+        assert exc.value.status_code == 403
+
+    def test_extension_origin_allowed(self):
+        origin_check.check_origin(_req({"Origin": EXT, "Host": "127.0.0.1:8765"}))
+
+    def test_no_origin_allowed_for_non_browser_clients(self):
+        origin_check.check_origin(_req({"Host": "127.0.0.1:8765"}))
+
+    @pytest.mark.parametrize("host", ["127.0.0.1:8765", "localhost:8765", "localhost", "[::1]:8765"])
+    def test_loopback_host_headers_allowed(self, host):
+        origin_check.check_origin(_req({"Host": host}))
+
+    @pytest.mark.parametrize("host", ["attacker.example", "attacker.example:8765", "127.0.0.1.evil.com:8765",
+                                      "192.168.1.5:8765", "evil.com:80"])
+    def test_dns_rebinding_host_rejected(self, host):
+        # A rebound page is same-origin (so sends NO Origin header) but still sends the attacker's Host.
+        with pytest.raises(HTTPException) as exc:
+            origin_check.check_origin(_req({"Host": host}))
+        assert exc.value.status_code == 403
+
+
+class TestHttpLevel:
+    @pytest.fixture(autouse=True)
+    def _allow_testclient_peer(self, monkeypatch):
+        monkeypatch.setattr(origin_check, "ALLOWED_HOSTS", origin_check.ALLOWED_HOSTS | {"testclient"})
+        self.c = TestClient(app, base_url="http://127.0.0.1:8765")
+
+    def test_page_cannot_read_token(self):
+        r = self.c.get("/token", headers={"Origin": "https://chatgpt.com"})
+        assert r.status_code == 403 and "token" not in r.json()
+
+    def test_extension_can_read_token_and_call_api(self):
+        tok = self.c.get("/token", headers={"Origin": EXT}).json()["token"]
+        r = self.c.post("/api/detect", json={"text": "hello"},
+                        headers={"Origin": EXT, "Authorization": f"Bearer {tok}"})
+        assert r.status_code == 200
+
+    def test_cors_preflight_denied_for_web_pages_allowed_for_extensions(self):
+        pre = {"Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization,content-type"}
+        web = self.c.options("/api/mask", headers={"Origin": "https://chatgpt.com", **pre})
+        assert "access-control-allow-origin" not in web.headers
+        ext = self.c.options("/api/mask", headers={"Origin": EXT, **pre})
+        assert ext.headers.get("access-control-allow-origin") == EXT
+
+    def test_rebound_host_rejected_on_every_endpoint(self):
+        evil = TestClient(app, base_url="http://attacker.example:8765")
+        assert evil.get("/token").status_code == 403
+
+
+class TestTokenFile:
+    def test_empty_bearer_never_authenticates(self):
+        assert auth.verify_token("") is False
+
+    def test_empty_token_in_file_is_replaced_not_trusted(self, tmp_path, monkeypatch):
+        f = tmp_path / "t.json"
+        f.write_text(json.dumps({"token": ""}))
+        monkeypatch.setattr(auth, "_TOKEN_FILE", f)
+        tok = auth.get_install_token()
+        assert len(tok) >= 16 and auth.verify_token(tok) and not auth.verify_token("")
+
+    def test_short_or_non_string_token_is_replaced(self, tmp_path, monkeypatch):
+        f = tmp_path / "t.json"
+        monkeypatch.setattr(auth, "_TOKEN_FILE", f)
+        for bad in ({"token": "abc"}, {"token": 12345}, {"nottoken": 1}, []):
+            f.write_text(json.dumps(bad))
+            assert len(auth.get_install_token()) >= 16
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+    def test_new_token_file_is_private(self, tmp_path, monkeypatch):
+        f = tmp_path / "t.json"
+        monkeypatch.setattr(auth, "_TOKEN_FILE", f)
+        auth.get_install_token()
+        assert stat.S_IMODE(f.stat().st_mode) == 0o600
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+    def test_loose_existing_token_file_is_tightened(self, tmp_path, monkeypatch):
+        f = tmp_path / "t.json"
+        f.write_text(json.dumps({"token": "x" * 43}))
+        f.chmod(0o644)
+        monkeypatch.setattr(auth, "_TOKEN_FILE", f)
+        auth.get_install_token()
+        assert stat.S_IMODE(f.stat().st_mode) == 0o600
