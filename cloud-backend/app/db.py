@@ -4,6 +4,11 @@ SQLAlchemy models for organizations, policies, audit events, and endpoints.
 """
 from __future__ import annotations
 
+import hashlib
+import os
+import secrets
+import sys
+import threading
 from datetime import datetime
 from sqlalchemy import (
     create_engine, Column, Integer, String, Text, DateTime, Boolean,
@@ -20,6 +25,8 @@ class Organization(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False, unique=True)
+    # SHA-256 hex digest (64 chars) of the organization's API key. The key itself is shown once
+    # at creation and never stored, so a leaked database file does not leak working credentials.
     api_key = Column(String(64), nullable=False, unique=True, index=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -80,10 +87,30 @@ class AuditEvent(Base):
 
 # === Database setup ===
 
-def init_db(db_url: str = "sqlite:///./cloud_backend.db"):
-    """Create all tables."""
-    engine = create_engine(db_url, echo=False)
-    Base.metadata.create_all(engine)
+DEFAULT_DB_URL = "sqlite:///./cloud_backend.db"
+_engines: dict[str, object] = {}
+_engines_lock = threading.Lock()
+
+
+def database_url() -> str:
+    """DATABASE_URL (see .env.example), or DB_URL (older docs), or a local SQLite file."""
+    return os.getenv("DATABASE_URL") or os.getenv("DB_URL") or DEFAULT_DB_URL
+
+
+def init_db(db_url: str | None = None):
+    """Create all tables and return the (cached, one-per-URL) engine.
+
+    Previously every request built a brand-new engine and re-ran create_all; engines own the
+    connection pool, so that leaked pools and ignored DATABASE_URL.
+    """
+    url = db_url or database_url()
+    with _engines_lock:
+        engine = _engines.get(url)
+        if engine is None:
+            kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}
+            engine = create_engine(url, echo=False, **kwargs)
+            Base.metadata.create_all(engine)
+            _engines[url] = engine
     return engine
 
 
@@ -93,50 +120,85 @@ def get_session(engine):
     return Session()
 
 
-def seed_defaults(engine):
-    """Seed the database with default policies."""
-    session = get_session(engine)
+def get_db():
+    """FastAPI dependency: one session per request."""
+    db = get_session(init_db())
+    try:
+        yield db
+    finally:
+        db.close()
 
-    # Ensure the default organization exists (policies reference org_id=1)
-    import secrets
-    if not session.query(Organization).filter(Organization.id == 1).first():
-        session.add(Organization(
-            id=1,
-            name="Default Organization",
-            api_key=secrets.token_hex(32),
-        ))
-        session.commit()
 
-    # Check if defaults already exist
-    if session.query(Policy).filter(Policy.is_default == True).first():
-        session.close()
-        return
+# === API keys ===
 
-    defaults = [
-        ("PERSON", "faker"),
-        ("EMAIL", "faker"),
-        ("PHONE_NUMBER", "faker"),
-        ("ORGANIZATION", "faker"),
-        ("ADDRESS", "faker"),
-        ("USERNAME", "faker"),
-        ("CREDIT_CARD", "redact"),
-        ("API_KEY", "redact"),
-        ("JWT", "redact"),
-        ("PEM_BLOCK", "redact"),
-        ("IBAN", "redact"),
-        ("SSN", "redact"),
-        ("URL", "keep"),
-        ("IPV4", "keep"),
-        ("IPV6", "keep"),
-    ]
+MIN_API_KEY_LEN = 24
 
-    for entity_type, action in defaults:
-        session.add(Policy(
-            org_id=1,  # default org
-            entity_type=entity_type,
-            action=action,
-            is_default=True,
-        ))
 
+def hash_api_key(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def create_organization(session, name: str, api_key: str | None = None) -> tuple["Organization", str]:
+    """Create an organization. Returns (org, plaintext_key); the key is not recoverable later."""
+    key = api_key or secrets.token_urlsafe(32)
+    if len(key) < MIN_API_KEY_LEN:
+        raise ValueError(f"API key must be at least {MIN_API_KEY_LEN} characters")
+    org = Organization(name=name, api_key=hash_api_key(key))
+    session.add(org)
     session.commit()
-    session.close()
+    session.refresh(org)
+    return org, key
+
+
+def seed_defaults(engine):
+    """Seed the default organization (+ its API key) and default policies."""
+    session = get_session(engine)
+    try:
+        env_key = os.getenv("CLOUD_ADMIN_API_KEY")
+        if env_key is not None and len(env_key) < MIN_API_KEY_LEN:
+            # Fail closed: never start with a guessable admin key.
+            raise RuntimeError(f"CLOUD_ADMIN_API_KEY must be at least {MIN_API_KEY_LEN} characters")
+
+        org = session.query(Organization).filter(Organization.id == 1).first()
+        if org is None:
+            key = env_key or secrets.token_urlsafe(32)
+            session.add(Organization(id=1, name="Default Organization", api_key=hash_api_key(key)))
+            session.commit()
+            if not env_key:
+                # No key configured: show the generated one ONCE (only its hash is stored).
+                print("\n" + "=" * 70 +
+                      "\n  Doppel cloud backend: admin API key for the default organization\n"
+                      "  (shown once; send it as the X-API-Key header):\n\n"
+                      f"    {key}\n\n"
+                      "  Set CLOUD_ADMIN_API_KEY to choose your own, or to rotate it.\n" +
+                      "=" * 70 + "\n", file=sys.stderr)
+        elif env_key:
+            org.api_key = hash_api_key(env_key)    # rotate/recover (also migrates old plaintext keys)
+            session.commit()
+
+        # Check if defaults already exist
+        if session.query(Policy).filter(Policy.is_default == True).first():  # noqa: E712
+            return
+
+        defaults = [
+            ("PERSON", "faker"),
+            ("EMAIL", "faker"),
+            ("PHONE_NUMBER", "faker"),
+            ("ORGANIZATION", "faker"),
+            ("ADDRESS", "faker"),
+            ("USERNAME", "faker"),
+            ("CREDIT_CARD", "redact"),
+            ("API_KEY", "redact"),
+            ("JWT", "redact"),
+            ("PEM_BLOCK", "redact"),
+            ("IBAN", "redact"),
+            ("SSN", "redact"),
+            ("URL", "keep"),
+            ("IPV4", "keep"),
+            ("IPV6", "keep"),
+        ]
+        for entity_type, action in defaults:
+            session.add(Policy(org_id=1, entity_type=entity_type, action=action, is_default=True))
+        session.commit()
+    finally:
+        session.close()

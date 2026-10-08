@@ -17,6 +17,23 @@ const API_BASE = BASE_URL.endsWith("/api")
   ? BASE_URL.slice(0, -4)
   : BASE_URL;
 
+const KEY_STORAGE = "doppel_api_key";
+
+/** The org API key is kept in sessionStorage (cleared when the tab closes), never in the bundle. */
+export function getApiKey(): string {
+  try { return sessionStorage.getItem(KEY_STORAGE) || ""; } catch { return ""; }
+}
+export function setApiKey(key: string): void {
+  try {
+    if (key) sessionStorage.setItem(KEY_STORAGE, key.trim());
+    else sessionStorage.removeItem(KEY_STORAGE);
+  } catch { /* storage unavailable */ }
+}
+
+export class AuthError extends Error {
+  constructor(message: string) { super(message); this.name = "AuthError"; }
+}
+
 async function request<T>(
   path: string,
   init?: RequestInit
@@ -25,6 +42,7 @@ async function request<T>(
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(getApiKey() ? { "X-API-Key": getApiKey() } : {}),
       ...(init?.headers || {}),
     },
   });
@@ -35,6 +53,9 @@ async function request<T>(
       if (body.detail) detail = body.detail;
     } catch {
       /* ignore */
+    }
+    if (res.status === 401) {
+      throw new AuthError(getApiKey() ? "API key rejected — check Settings." : "Enter your API key in Settings.");
     }
     throw new Error(detail);
   }

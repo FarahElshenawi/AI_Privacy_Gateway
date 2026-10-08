@@ -1,0 +1,21 @@
+name: CI - Cloud backend
+on:
+  push:
+    branches: [develop, main]
+    paths: ["cloud-backend/**"]
+  pull_request:
+    paths: ["cloud-backend/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloud-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
