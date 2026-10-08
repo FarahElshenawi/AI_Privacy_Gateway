@@ -61,6 +61,7 @@ const SESSION_KEY_VAULT_IDS = "vaultIdByConv";
 const attachedTabs = new Set();
 const attaching = new Map();            // tabId → in-flight attach promise
 const reservedNames = new Map();        // tabId → FIFO of masked ChatGPT upload filenames
+const authorizedMaskedFiles = new Map(); // tabId → FIFO of { hash, expiresAt, filename }
 const geminiUploads = new Map();        // tabId → FIFO of { name, type } from resumable "start"
 const pendingVaultId = new Map();       // tabId → vault id while the chat has no server id yet
 
@@ -482,6 +483,38 @@ async function handleReserve(source, params, body) {
   await cont(source, requestId, { postData: encodeJson(parsed) });
 }
 
+async function sha256Hex(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function consumeAuthorizedBrowserFile(tabId, body) {
+  const queue = authorizedMaskedFiles.get(tabId);
+  if (!queue || queue.length === 0) return null;
+
+  const now = Date.now();
+  const hash = await sha256Hex(body);
+  let matchIndex = -1;
+
+  for (let i = 0; i < queue.length; i++) {
+    const entry = queue[i];
+    if (entry.expiresAt <= now) continue;
+    if (!entry.hash) entry.hash = await sha256Hex(entry.bytes);
+    if (entry.hash === hash) {
+      matchIndex = i;
+      break;
+    }
+  }
+
+  // Remove expired entries and consume the matching authorization once.
+  const remaining = queue.filter((entry, i) => entry.expiresAt > now && i !== matchIndex);
+  if (remaining.length) authorizedMaskedFiles.set(tabId, remaining);
+  else authorizedMaskedFiles.delete(tabId);
+
+  if (matchIndex === -1) return null;
+  return queue[matchIndex];
+}
+
 async function handleFilePut(source, params, body) {
   const { requestId, request } = params;
   const tabId = source.tabId;
@@ -492,6 +525,23 @@ async function handleFilePut(source, params, body) {
     getHeader(headers, "x-ms-blob-content-type") || "application/octet-stream";
   const queue = reservedNames.get(tabId) || [];
   const filename = queue.shift() || "";
+
+  // A browser-side interception may already have sent this exact masked file
+  // through /api/process_file. Do not mask it a second time.
+  try {
+    const authorized = await consumeAuthorizedBrowserFile(tabId, body);
+    if (authorized) {
+      await cont(source, requestId);
+      trace({
+        kind: "file-put",
+        outcome: "VERIFIED",
+        detail: `browser-masked file verified (${body.length} bytes)`,
+      });
+      return;
+    }
+  } catch (err) {
+    console.warn("[Doppel] Browser-file verification failed; falling back to network masking:", err.message);
+  }
 
   let res;
   try {
@@ -515,6 +565,55 @@ async function handleFilePut(source, params, body) {
  * extension that agrees with the content (the backend needs .docx/.xlsx on a
  * ZIP to treat it as Word/Excel). Throws if the backend refuses or returns nothing.
  */
+async function handleSelectedFile(message, sender) {
+  const { [PROTECTION_KEY]: enabled } = await chrome.storage.local.get(PROTECTION_KEY);
+  if (enabled === false) return { success: true, passthrough: true };
+
+  if (!sender.tab || !isChatGPTUrl(sender.tab.url)) {
+    throw new BackendError("File interception is only available on ChatGPT", 400);
+  }
+  if (typeof message.bytesBase64 !== "string" || !message.bytesBase64) {
+    throw new BackendError("Missing file bytes", 400);
+  }
+
+  const binary = atob(message.bytesBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  const vaultId = await resolveVaultId(sender.tab.id, null);
+  const res = await maskFileChecked(
+    bytes,
+    typeof message.filename === "string" ? message.filename : "uploaded_file",
+    typeof message.contentType === "string" ? message.contentType : "application/octet-stream",
+    vaultId,
+  );
+
+  await recordFileMasked("browser-file", bytes.length, res);
+
+  const tabId = sender.tab.id;
+  let authQueue = authorizedMaskedFiles.get(tabId);
+  if (!authQueue) {
+    authQueue = [];
+    authorizedMaskedFiles.set(tabId, authQueue);
+  }
+  const nowMs = Date.now();
+  authQueue = authQueue.filter((e) => e.expiresAt > nowMs);   // drop stale authorizations
+  authorizedMaskedFiles.set(tabId, authQueue);
+  authQueue.push({
+    hash: await sha256Hex(res.bytes),
+    bytes: res.bytes,
+    filename: message.filename || "uploaded_file",
+    expiresAt: Date.now() + 5 * 60 * 1000,
+  });
+
+  return {
+    success: true,
+    bytesBase64: bytesToBase64(res.bytes),
+    filename: fixFilename(message.filename || "uploaded_file", res.bytes, message.contentType),
+    contentType: message.contentType || "application/octet-stream",
+  };
+}
+
 async function maskFileChecked(bytes, filename, contentType, vaultId) {
   const name = fixFilename(filename, bytes, contentType);
   const res = await maskFileViaBackend(bytes, name, contentType, vaultId);
@@ -813,7 +912,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => detachDebuggerFromTab(tabId));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  authorizedMaskedFiles.delete(tabId);
+  detachDebuggerFromTab(tabId);
+});
 
 chrome.debugger.onDetach.addListener((source, reason) => {
   if (source.tabId === undefined) return;
@@ -838,6 +940,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case "PING":
           sendResponse({ success: true, pong: Date.now() });
           break;
+        case "MASK_SELECTED_FILE": {
+          const result = await handleSelectedFile(message, sender);
+          sendResponse(result);
+          break;
+        }
+
 
         case "HEALTH": {
           try {
