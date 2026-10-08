@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 const b64 = (u8) => Buffer.from(u8).toString("base64");
 const enc = (s) => new TextEncoder().encode(s);
 
-let onEvent, calls, store, backendUp = true, postDataResult;
+let onEvent, onMessage, calls, store, backendUp = true, postDataResult;
 
 function resetCalls() { calls = []; postDataResult = null; backendUp = true; maskOverride = null; fileHeaders = {}; lastFile = null; }
 
@@ -33,7 +33,7 @@ globalThis.chrome = {
   },
   action: { setBadgeText() {}, setBadgeBackgroundColor() {} },
   alarms: { create() {}, onAlarm: ev() },
-  runtime: { id: "x", onMessage: ev(), onStartup: ev(), onInstalled: ev(), sendMessage: async () => {} },
+  runtime: { id: "x", onMessage: { addListener: (fn) => { onMessage = fn; } }, onStartup: ev(), onInstalled: ev(), sendMessage: async () => {} },
   debugger: {
     onEvent: { addListener: (fn) => { onEvent = fn; } },
     onDetach: ev(),
@@ -413,4 +413,86 @@ test("backend 422 on a file (residual_leak) → blocked with a readable reason",
   try { await putFile("c12", Buffer.from("%PDF-1.7 x"), {}); } finally { globalThis.fetch = realFetch; }
   assert.ok(outcome().failed);
   assert.match((await lastLog()).detail, /still contained sensitive data/);
+});
+
+
+// ── Browser-side file masking (content script → MASK_SELECTED_FILE) ─────────────────────
+const CHATGPT_SENDER = { tab: { id: 7, url: "https://chatgpt.com/c/abc" } };
+const sendMsg = (message, sender = CHATGPT_SENDER) =>
+  new Promise((resolve) => { onMessage(message, sender, resolve); });
+const selected = (bytes, name = "report.pdf") =>
+  ({ type: "MASK_SELECTED_FILE", filename: name, contentType: "application/pdf", bytesBase64: b64(bytes) });
+
+test("MASK_SELECTED_FILE: masks via backend and returns masked bytes", async () => {
+  resetCalls();
+  const r = await sendMsg(selected(PDF));
+  assert.equal(r.success, true);
+  const out = Buffer.from(r.bytesBase64, "base64");
+  assert.equal(out.subarray(0, 7).toString(), "MASKED:");
+  assert.deepEqual([...out.subarray(7)], [...PDF]);
+  assert.equal(r.filename, "report.pdf");
+});
+
+test("the browser-masked file is verified on the network by hash, NOT masked twice", async () => {
+  resetCalls();
+  const r = await sendMsg(selected(PDF, "twice.pdf"));
+  const masked = Buffer.from(r.bytesBase64, "base64");
+  lastFile = null;
+  await fire({
+    requestId: "bm1",
+    request: { url: AZ, method: "PUT", hasPostData: true, headers: { "content-type": "application/pdf" },
+               postDataEntries: [{ bytes: b64(masked) }] },
+  });
+  const o = outcome();
+  assert.ok(o.cont && !o.failed, "must continue");
+  assert.equal(o.cont.postData, undefined, "body is forwarded unchanged (no second masking)");
+  assert.equal(lastFile, null, "backend was not called again");
+});
+
+test("an authorization is single-use: a second identical upload is not waved through", async () => {
+  resetCalls();
+  const unique = Uint8Array.from([0x25, 0x50, 0x44, 0x46, 7, 7, 7, 7]);   // not authorized by earlier tests
+  const r = await sendMsg(selected(unique, "once.pdf"));
+  const masked = Buffer.from(r.bytesBase64, "base64");
+  const put = (id) => fire({ requestId: id, request: { url: AZ, method: "PUT", hasPostData: true,
+    headers: { "content-type": "application/pdf" }, postDataEntries: [{ bytes: b64(masked) }] } });
+  await put("s1");
+  calls = [];
+  await put("s2");
+  const o = outcome();
+  // (the fake backend rejects already-masked bytes as an unknown type, so "blocked" is also correct)
+  assert.ok(o.failed || (o.cont && o.cont.postData), "must NOT be forwarded unchanged via a spent authorization");
+});
+
+test("an upload that does NOT match what was masked is still masked/blocked by the network path", async () => {
+  resetCalls();
+  await sendMsg(selected(PDF, "a.pdf"));
+  calls = [];
+  const other = Uint8Array.from([0x25, 0x50, 0x44, 0x46, 9, 9, 9]);
+  await fire({ requestId: "mm1", request: { url: AZ, method: "PUT", hasPostData: true,
+    headers: { "content-type": "application/pdf" }, postDataEntries: [{ bytes: b64(other) }] } });
+  const o = outcome();
+  assert.equal(Buffer.from(o.cont.postData, "base64").subarray(0, 7).toString(), "MASKED:");
+});
+
+test("MASK_SELECTED_FILE from a non-ChatGPT tab is refused", async () => {
+  resetCalls();
+  const r = await sendMsg(selected(PDF), { tab: { id: 9, url: "https://evil.example/" } });
+  assert.equal(r.success, false);
+});
+
+test("MASK_SELECTED_FILE: backend down → error (fail closed), no bytes returned", async () => {
+  resetCalls();
+  backendUp = false;
+  const r = await sendMsg(selected(PDF));
+  assert.equal(r.success, false);
+  assert.equal(r.bytesBase64, undefined);
+});
+
+test("MASK_SELECTED_FILE: unsupported file (image) → error with a readable reason", async () => {
+  resetCalls();
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+  const r = await sendMsg({ ...selected(png, "pic.png"), contentType: "image/png" });
+  assert.equal(r.success, false);
+  assert.ok(r.error && r.error.length > 0);
 });
