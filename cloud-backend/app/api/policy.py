@@ -1,33 +1,41 @@
-"""Policy API — CRUD for entity-type → action policies.
+"""Policy API — CRUD for entity-type → action policies. Authenticated and org-scoped.
 
-Endpoints:
-  GET    /api/policies          — list all policies (optionally by org)
-  GET    /api/policies/{type}   — get policy for a specific entity type
-  POST   /api/policies          — create a new policy
-  PUT    /api/policies/{id}     — update a policy
-  DELETE /api/policies/{id}     — delete a policy
-  GET    /api/policies/export   — export all policies as JSON (for local backend pull)
+Endpoints (all require an API key; the organization is the key's organization):
+  GET    /api/policies               — list this org's policies
+  GET    /api/policies/export        — {entity_type: action} map (for local backend pull)
+  GET    /api/policies/{type}        — get policy for a specific entity type
+  POST   /api/policies               — create a new policy
+  PUT    /api/policies/{id}          — update a policy
+  DELETE /api/policies/{id}          — delete a (non-default) policy
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Depends, Header
-from pydantic import BaseModel
-from typing import Optional
+from typing import Annotated, Literal, Optional
 
-from app.db import get_session, Policy, init_db
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, StringConstraints
+
+from app.auth import require_org
+from app.db import Organization, Policy, get_db
 
 router = APIRouter(prefix="/api/policies", tags=["policies"])
 
+Action = Literal["faker", "redact", "keep"]
+EntityType = Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True,
+                                              pattern=r"^[A-Za-z][A-Za-z0-9_]{0,63}$")]
+
 
 class PolicyCreate(BaseModel):
-    org_id: int = 1
-    entity_type: str
-    action: str  # "faker", "redact", "keep"
+    # Unknown fields (e.g. a legacy `org_id`) are ignored: the org always comes from the API key.
+    model_config = ConfigDict(extra="ignore")
+    entity_type: EntityType
+    action: Action
 
 
 class PolicyUpdate(BaseModel):
-    action: Optional[str] = None
-    entity_type: Optional[str] = None
+    model_config = ConfigDict(extra="ignore")
+    action: Optional[Action] = None
+    entity_type: Optional[EntityType] = None
 
 
 class PolicyResponse(BaseModel):
@@ -39,29 +47,41 @@ class PolicyResponse(BaseModel):
     version: int
 
 
-def get_db():
-    """Dependency: yields a database session."""
-    engine = init_db()
-    db = get_session(engine)
-    try:
-        yield db
-    finally:
-        db.close()
+def _own_policy(db, org: Organization, policy_id: int) -> Policy:
+    policy = db.query(Policy).filter(Policy.id == policy_id, Policy.org_id == org.id).first()
+    if not policy:   # 404 (not 403) for other orgs' ids: don't confirm they exist
+        raise HTTPException(status_code=404, detail="Policy not found")
+    return policy
+
+
+def _export(db, org: Organization) -> dict[str, str]:
+    return {p.entity_type: p.action for p in db.query(Policy).filter(Policy.org_id == org.id).all()}
 
 
 @router.get("", response_model=list[PolicyResponse])
-async def list_policies(org_id: int = 1, db=Depends(get_db)):
-    """List all policies for an organization."""
-    policies = db.query(Policy).filter(Policy.org_id == org_id).all()
-    return policies
+def list_policies(org: Organization = Depends(require_org), db=Depends(get_db)):
+    """List all policies for the caller's organization."""
+    return db.query(Policy).filter(Policy.org_id == org.id).all()
+
+
+# NOTE: /export must be declared BEFORE /{entity_type}, or "export" is captured as an entity type.
+@router.get("/export")
+def export_policies(org: Organization = Depends(require_org), db=Depends(get_db)):
+    """All policies as a routing table: {"PERSON": "faker", "CREDIT_CARD": "redact", ...}."""
+    return _export(db, org)
+
+
+@router.get("/export/all", include_in_schema=False)
+def export_policies_legacy(org: Organization = Depends(require_org), db=Depends(get_db)):
+    return _export(db, org)
 
 
 @router.get("/{entity_type}", response_model=PolicyResponse)
-async def get_policy(entity_type: str, org_id: int = 1, db=Depends(get_db)):
+def get_policy(entity_type: str, org: Organization = Depends(require_org), db=Depends(get_db)):
     """Get the policy for a specific entity type."""
     policy = db.query(Policy).filter(
-        Policy.org_id == org_id,
-        Policy.entity_type == entity_type.upper(),
+        Policy.org_id == org.id,
+        Policy.entity_type == entity_type.strip().upper(),
     ).first()
     if not policy:
         raise HTTPException(status_code=404, detail=f"No policy for {entity_type}")
@@ -69,20 +89,13 @@ async def get_policy(entity_type: str, org_id: int = 1, db=Depends(get_db)):
 
 
 @router.post("", response_model=PolicyResponse, status_code=201)
-async def create_policy(body: PolicyCreate, db=Depends(get_db)):
+def create_policy(body: PolicyCreate, org: Organization = Depends(require_org), db=Depends(get_db)):
     """Create a new policy."""
     existing = db.query(Policy).filter(
-        Policy.org_id == body.org_id,
-        Policy.entity_type == body.entity_type.upper(),
-    ).first()
+        Policy.org_id == org.id, Policy.entity_type == body.entity_type).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"Policy for {body.entity_type} already exists")
-    
-    policy = Policy(
-        org_id=body.org_id,
-        entity_type=body.entity_type.upper(),
-        action=body.action.lower(),
-    )
+    policy = Policy(org_id=org.id, entity_type=body.entity_type, action=body.action)
     db.add(policy)
     db.commit()
     db.refresh(policy)
@@ -90,17 +103,20 @@ async def create_policy(body: PolicyCreate, db=Depends(get_db)):
 
 
 @router.put("/{policy_id}", response_model=PolicyResponse)
-async def update_policy(policy_id: int, body: PolicyUpdate, db=Depends(get_db)):
+def update_policy(policy_id: int, body: PolicyUpdate,
+                  org: Organization = Depends(require_org), db=Depends(get_db)):
     """Update a policy."""
-    policy = db.query(Policy).filter(Policy.id == policy_id).first()
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
+    policy = _own_policy(db, org, policy_id)
 
-    if body.action:
-        policy.action = body.action.lower()
+    if body.entity_type and body.entity_type != policy.entity_type:
+        clash = db.query(Policy).filter(
+            Policy.org_id == org.id, Policy.entity_type == body.entity_type, Policy.id != policy.id).first()
+        if clash:
+            raise HTTPException(status_code=409, detail=f"Policy for {body.entity_type} already exists")
+        policy.entity_type = body.entity_type
+    if body.action and body.action != policy.action:
+        policy.action = body.action
         policy.version += 1
-    if body.entity_type:
-        policy.entity_type = body.entity_type.upper()
 
     db.commit()
     db.refresh(policy)
@@ -108,22 +124,10 @@ async def update_policy(policy_id: int, body: PolicyUpdate, db=Depends(get_db)):
 
 
 @router.delete("/{policy_id}", status_code=204)
-async def delete_policy(policy_id: int, db=Depends(get_db)):
+def delete_policy(policy_id: int, org: Organization = Depends(require_org), db=Depends(get_db)):
     """Delete a policy."""
-    policy = db.query(Policy).filter(Policy.id == policy_id).first()
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
+    policy = _own_policy(db, org, policy_id)
     if policy.is_default:
         raise HTTPException(status_code=400, detail="Cannot delete default policies")
     db.delete(policy)
     db.commit()
-
-
-@router.get("/export/all")
-async def export_policies(org_id: int = 1, db=Depends(get_db)):
-    """Export all policies as a routing table (for local backend pull).
-
-    Returns a simple JSON dict: {"PERSON": "faker", "CREDIT_CARD": "redact", ...}
-    """
-    policies = db.query(Policy).filter(Policy.org_id == org_id).all()
-    return {p.entity_type: p.action for p in policies}

@@ -47,4 +47,8 @@ local-backend/models/*.onnx.data
 local-backend/dlp_core/eval/holdout_v1.json
 local-backend/dlp_core/eval/
 eval/
+next/
+# --- Next.js / local DBs ---
 .next/
+website/.next/
+cloud-backend/*.db

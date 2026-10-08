@@ -1,33 +1,49 @@
-"""Audit ingestion — metadata only, never prompt content.
+"""Audit ingestion — metadata only, never prompt content. Authenticated and org-scoped.
 
-Endpoints:
+Endpoints (all require an API key; the organization is the key's organization):
   POST   /api/audit            — submit an audit event
-  GET    /api/audit             — list events (with filters)
-  GET    /api/audit/stats       — aggregated statistics for dashboard
-  DELETE /api/audit/{id}        — delete an event (GDPR right to erasure)
+  GET    /api/audit            — list events (with filters)
+  GET    /api/audit/stats      — aggregated statistics for dashboard
+  DELETE /api/audit/{id}       — delete an event (GDPR right to erasure)
+
+"Never content" is enforced by the request schema, not just by convention: the event model
+accepts ONLY the fields below (extra fields are rejected with 422), entity_types is a
+{LABEL: count} map of non-negative integers, and every string is length/charset-limited.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from sqlalchemy import func
 
-from app.db import get_session, AuditEvent, init_db
+from app.auth import require_org
+from app.db import AuditEvent, Endpoint, Organization, get_db
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
+Label = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]{0,63}$")]
+Count = Annotated[int, Field(ge=0, le=10_000_000)]
+
 
 class AuditEventCreate(BaseModel):
-    org_id: int = 1
+    model_config = ConfigDict(extra="forbid")   # a `text`/`prompt` field can't be smuggled in
+
     endpoint_id: Optional[int] = None
-    event_type: str  # "mask", "detect", "file", "fail_closed"
-    entity_types: Optional[dict] = None  # {"PERSON": 3, "EMAIL": 2}
-    entity_count: int = 0
-    latency_ms: Optional[int] = None
-    conversation_id: Optional[str] = None
+    event_type: Literal["mask", "detect", "file", "fail_closed"]
+    entity_types: Optional[dict[Label, Count]] = None  # {"PERSON": 3, "EMAIL": 2}
+    entity_count: Count = 0
+    latency_ms: Optional[Annotated[int, Field(ge=0, le=3_600_000)]] = None
+    conversation_id: Optional[Annotated[str, StringConstraints(max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")]] = None
+
+    @field_validator("entity_types")
+    @classmethod
+    def _bounded(cls, v):
+        if v is not None and len(v) > 64:
+            raise ValueError("too many entity types")
+        return v
 
 
 class AuditEventResponse(BaseModel):
@@ -39,28 +55,19 @@ class AuditEventResponse(BaseModel):
     timestamp: datetime
 
 
-def get_db():
-    engine = init_db()
-    db = get_session(engine)
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 @router.post("", response_model=AuditEventResponse, status_code=201)
-async def submit_audit(body: AuditEventCreate, db=Depends(get_db)):
+def submit_audit(body: AuditEventCreate, org: Organization = Depends(require_org), db=Depends(get_db)):
     """Submit an audit event from a local backend.
 
-    This endpoint accepts METADATA ONLY:
-    - entity types and counts (e.g. {"PERSON": 3, "EMAIL": 2})
-    - latency (P95 in ms)
-    - event type (mask/detect/file/fail_closed)
-
+    Accepts METADATA ONLY: entity types and counts, latency, event type.
     It NEVER accepts prompt content, masked or unmasked.
     """
+    if body.endpoint_id is not None:
+        owned = db.query(Endpoint).filter(Endpoint.id == body.endpoint_id, Endpoint.org_id == org.id).first()
+        if not owned:
+            raise HTTPException(status_code=422, detail="Unknown endpoint_id")
     event = AuditEvent(
-        org_id=body.org_id,
+        org_id=org.id,
         endpoint_id=body.endpoint_id,
         event_type=body.event_type,
         entity_types=body.entity_types,
@@ -75,17 +82,17 @@ async def submit_audit(body: AuditEventCreate, db=Depends(get_db)):
 
 
 @router.get("", response_model=list[AuditEventResponse])
-async def list_audit(
-    org_id: int = 1,
+def list_audit(
     event_type: Optional[str] = None,
     hours: int = Query(24, ge=1, le=720),
     limit: int = Query(100, ge=1, le=1000),
+    org: Organization = Depends(require_org),
     db=Depends(get_db),
 ):
-    """List audit events with optional filters."""
+    """List this organization's audit events with optional filters."""
     since = datetime.utcnow() - timedelta(hours=hours)
     query = db.query(AuditEvent).filter(
-        AuditEvent.org_id == org_id,
+        AuditEvent.org_id == org.id,
         AuditEvent.timestamp >= since,
     )
     if event_type:
@@ -94,65 +101,40 @@ async def list_audit(
 
 
 @router.get("/stats")
-async def get_stats(org_id: int = 1, hours: int = Query(24, ge=1, le=720), db=Depends(get_db)):
-    """Get aggregated statistics for the dashboard.
+def get_stats(hours: int = Query(24, ge=1, le=720),
+              org: Organization = Depends(require_org), db=Depends(get_db)):
+    """Aggregated statistics for the dashboard.
 
-    Returns counts, entity type breakdown, latency percentiles,
-    and fail-closed events.
+    Returns counts, entity type breakdown, latency, and fail-closed events.
     """
     since = datetime.utcnow() - timedelta(hours=hours)
-    
-    total_events = db.query(AuditEvent).filter(
-        AuditEvent.org_id == org_id,
-        AuditEvent.timestamp >= since,
-    ).count()
+    in_window = (AuditEvent.org_id == org.id, AuditEvent.timestamp >= since)
 
-    # Breakdown by event type
+    total_events = db.query(AuditEvent).filter(*in_window).count()
+
     type_counts = (
         db.query(AuditEvent.event_type, func.count(AuditEvent.id))
-        .filter(AuditEvent.org_id == org_id, AuditEvent.timestamp >= since)
+        .filter(*in_window)
         .group_by(AuditEvent.event_type)
         .all()
     )
 
-    # Fail-closed events
-    fail_closed = db.query(AuditEvent).filter(
-        AuditEvent.org_id == org_id,
-        AuditEvent.timestamp >= since,
-        AuditEvent.event_type == "fail_closed",
-    ).count()
+    fail_closed = db.query(AuditEvent).filter(*in_window, AuditEvent.event_type == "fail_closed").count()
 
-    # Average latency (for mask events)
     latency_avg = (
         db.query(func.avg(AuditEvent.latency_ms))
-        .filter(
-            AuditEvent.org_id == org_id,
-            AuditEvent.timestamp >= since,
-            AuditEvent.event_type == "mask",
-            AuditEvent.latency_ms.isnot(None),
-        )
+        .filter(*in_window, AuditEvent.event_type == "mask", AuditEvent.latency_ms.isnot(None))
         .scalar()
     )
 
-    # Total entities masked
     total_entities = (
         db.query(func.sum(AuditEvent.entity_count))
-        .filter(
-            AuditEvent.org_id == org_id,
-            AuditEvent.timestamp >= since,
-            AuditEvent.event_type == "mask",
-        )
+        .filter(*in_window, AuditEvent.event_type == "mask")
         .scalar()
     )
 
-    # Entity type breakdown
-    entity_breakdown = {}
-    events = db.query(AuditEvent).filter(
-        AuditEvent.org_id == org_id,
-        AuditEvent.timestamp >= since,
-        AuditEvent.event_type == "mask",
-    ).all()
-    for e in events:
+    entity_breakdown: dict[str, int] = {}
+    for e in db.query(AuditEvent).filter(*in_window, AuditEvent.event_type == "mask").all():
         if e.entity_types:
             for etype, count in e.entity_types.items():
                 entity_breakdown[etype] = entity_breakdown.get(etype, 0) + count
@@ -169,9 +151,9 @@ async def get_stats(org_id: int = 1, hours: int = Query(24, ge=1, le=720), db=De
 
 
 @router.delete("/{event_id}", status_code=204)
-async def delete_audit(event_id: int, db=Depends(get_db)):
+def delete_audit(event_id: int, org: Organization = Depends(require_org), db=Depends(get_db)):
     """Delete an audit event (GDPR right to erasure)."""
-    event = db.query(AuditEvent).filter(AuditEvent.id == event_id).first()
+    event = db.query(AuditEvent).filter(AuditEvent.id == event_id, AuditEvent.org_id == org.id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     db.delete(event)
