@@ -14,6 +14,18 @@ from dlp_core.tier1 import Tier1Engine
 from dlp_core.tier2 import Tier2Config, Tier2Engine, map_label, parse_entities
 
 
+@pytest.fixture(autouse=True)
+def _pretend_gliner2_is_installed(monkeypatch):
+    """These tests inject fake models, so they must not depend on gliner2 being installed
+    (the idle availability check uses importlib.util.find_spec)."""
+    import importlib.util
+    real = importlib.util.find_spec
+
+    def find_spec(name, *a, **k):
+        return object() if name == "gliner2" else real(name, *a, **k)
+    monkeypatch.setattr(importlib.util, "find_spec", find_spec)
+
+
 # ---- parse_entities ---------------------------------------------------------
 def spans_of(text, entities):
     sp, un = parse_entities(text, entities)
