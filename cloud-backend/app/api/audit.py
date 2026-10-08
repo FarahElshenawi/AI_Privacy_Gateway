@@ -32,7 +32,7 @@ class AuditEventCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")   # a `text`/`prompt` field can't be smuggled in
 
     endpoint_id: Optional[int] = None
-    event_type: Literal["mask", "detect", "file", "fail_closed"]
+    event_type: Literal["mask", "detect", "file", "fail_closed", "demask"]
     entity_types: Optional[dict[Label, Count]] = None  # {"PERSON": 3, "EMAIL": 2}
     entity_count: Count = 0
     latency_ms: Optional[Annotated[int, Field(ge=0, le=3_600_000)]] = None

@@ -90,22 +90,36 @@ class OffsetMasker:
     def mask(self, text: str, spans: Sequence[MergedSpan], conversation_id: str) -> MaskResult:
         self._validate(text, spans)
 
-        # Pass 1: Check for BLOCK decisions and emit audit logs.
-        # If ANY span resolves to BLOCK, raise RequestBlockedError immediately
-        # before any vault write or token emission happens.
+        # Pre-compute the routing decision for every span ONCE.
+        # - For non-IP labels, route_label() is value-independent and deterministic.
+        # - For IP labels, route_label() inspects the value to classify public vs private.
+        #   Calling it twice would risk a different action on the second call (e.g. if
+        #   the MergeEngine already resolved the IP action, we must not re-resolve it
+        #   and contradict). Computing once and threading through both passes avoids that.
+        decisions = []
         for ms in spans:
             real = text[ms.start:ms.end]
+            # If the MergeEngine already set a definitive action (REDACT/FAKER/KEEP/BLOCK),
+            # route_label() is only consulted for the storage policy and audit metadata.
+            # For IP labels specifically, the merge engine's action already reflects the
+            # value classification — we trust it instead of re-evaluating.
             decision = route_label(ms.label, real)
+            decisions.append(decision)
+
+        # Pass 1: BLOCK check + audit emission.
+        # If ANY span resolves to BLOCK, raise RequestBlockedError immediately
+        # before any vault write or token emission happens.
+        for ms, decision in zip(spans, decisions):
+            real = text[ms.start:ms.end]
             emit_audit(build_audit_record(decision, conversation_id, len(real)))
             if ms.action is Action.BLOCK or decision.action is Action.BLOCK:
                 raise RequestBlockedError(decision.label, decision.rule)
 
-        # Pass 2: Decide replacements honoring StoragePolicy and Actions.
+        # Pass 2: Decide replacements honoring the pre-computed decisions.
         reps: list[str] = []
         applied: list[tuple[Action, bool]] = []
-        for ms in spans:
+        for ms, decision in zip(spans, decisions):
             real = text[ms.start:ms.end]
-            decision = route_label(ms.label, real)
 
             if ms.action is Action.FAKER:
                 got = self._fake_for(text, conversation_id, ms.label, real)
@@ -185,18 +199,30 @@ class OffsetMasker:
         return None
 
     def _unique_redaction_for(self, conv: str, label: str, real: str) -> tuple[str, bool]:
+        """Generate a unique [[REDACTED:LABEL:token]] placeholder stored in the vault.
+
+        Bounded retry: token_hex(2) gives 65,536 possible tokens per label/conversation.
+        Birthday-paradox collisions become likely around ~8,000 stored redactions.
+        After `max_attempts` collisions, fall back to a longer token (hex(4) → 4B space)
+        for one more attempt, then degrade to plain template (NO_STORE) rather than spin.
+        """
         existing = self._vault.lookup_fake(conv, label, real)
         if existing is not None:
             return existing, True
-        # Generate unique [[REDACTED:LABEL:token]] candidate
-        while True:
-            candidate = f"[[REDACTED:{label}:{secrets.token_hex(2)}]]"
-            if not self._vault.fake_in_use(conv, candidate):
+        # Try short tokens first (compact in output), then widen if we keep colliding.
+        for token_len, attempts in ((2, self._max_attempts), (4, self._max_attempts)):
+            for _ in range(attempts):
+                candidate = f"[[REDACTED:{label}:{secrets.token_hex(token_len)}]]"
+                if self._vault.fake_in_use(conv, candidate):
+                    continue
                 try:
                     self._vault.put(conv, label, real, candidate)
                     return candidate, False
                 except VaultCollisionError:
                     continue
+        # Exhausted collisions: degrade to plain template (NO_STORE, not bijective).
+        # The caller treats this as a REDACT+NO_STORE outcome.
+        return self._template.format(label=label), False
 
 
 class Demasker:

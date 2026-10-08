@@ -77,3 +77,11 @@ def test_valid_audit_event_roundtrip(client, A):
     stats = client.get("/api/audit/stats", headers=A).json()
     assert stats["entity_type_breakdown"] == {"PERSON": 3, "EMAIL": 1} and stats["avg_latency_ms"] == 120.0
     assert client.get("/api/audit?event_type=file", headers=A).json() == []
+
+
+def test_demask_event_type_is_accepted_and_not_counted_as_mask(client, A):
+    r = client.post("/api/audit", headers=A, json={"event_type": "demask", "entity_count": 4})
+    assert r.status_code == 201
+    stats = client.get("/api/audit/stats", headers=A).json()
+    assert stats["by_event_type"].get("demask") == 1
+    assert stats["total_entities_masked"] == 0

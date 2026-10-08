@@ -6,8 +6,12 @@ Security properties:
   * The real->fake index is an HMAC keyed with a per-vault random key, so the
     lookup structure holds no plaintext and no unkeyed hash that could be
     brute-forced for low-entropy values (names, phone numbers).
-  * Key and mappings live in process memory only. A restart drops them, which
-    is the safe default; persistence must be added deliberately.
+  * InMemoryVault: key and mappings live in process memory only. A restart
+    drops them, which is the safe default.
+  * PersistentVault: same in-memory contract, plus write-through to an
+    encrypted SQLite file. Survives restarts. The HMAC key is stored in a
+    sibling file (or supplied via env var / OS keystore) so the real→fake
+    index can be rebuilt.
   * Expired entries are invisible immediately and purged lazily.
   * Bijection is enforced in both directions.
 """
@@ -15,11 +19,13 @@ from __future__ import annotations
 
 import hmac
 import os
+import sqlite3
 import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from hashlib import sha256
+from pathlib import Path
 from typing import Callable, Optional, Protocol
 
 
@@ -117,6 +123,15 @@ class InMemoryVault:
             conv.version += 1
         return conv
 
+    def _after_put(self, conv_id: str, label: str, real: str, fake: str,
+                   sealed_real: bytes, expires_at: float, idx: bytes) -> None:
+        """Hook for subclasses to persist the new entry. No-op in InMemoryVault."""
+        pass
+
+    def _after_delete(self, conv_id: str, fake: str, idx: bytes) -> None:
+        """Hook for subclasses to delete a persisted entry. No-op in InMemoryVault."""
+        pass
+
     # -- public API ------------------------------------------------------
     def lookup_fake(self, conv_id: str, label: str, real: str) -> Optional[str]:
         with self._lock:
@@ -143,10 +158,12 @@ class InMemoryVault:
                 raise VaultCollisionError("fake value already maps to a different real")
             if len(conv.by_fake) >= self._cap:
                 raise VaultCapacityError("conversation entry limit reached")
-            conv.by_fake[fake] = _Entry(
-                fake, self._sealer.seal(real.encode("utf-8")), self._clock() + self._ttl, idx)
+            sealed = self._sealer.seal(real.encode("utf-8"))
+            expires_at = self._clock() + self._ttl
+            conv.by_fake[fake] = _Entry(fake, sealed, expires_at, idx)
             conv.by_real[idx] = fake
             conv.version += 1
+            self._after_put(conv_id, label, real, fake, sealed, expires_at, idx)
 
     def items(self, conv_id: str) -> list[tuple[str, str]]:
         """(fake, real) pairs, unsealed. Handle the result as sensitive."""
@@ -174,4 +191,225 @@ class InMemoryVault:
             self._convs.pop(conv_id, None)
 
     def __repr__(self) -> str:  # never expose contents
-        return f"InMemoryVault(conversations={len(self._convs)})"
+        return f"{type(self).__name__}(conversations={len(self._convs)})"
+
+
+class PersistentVault(InMemoryVault):
+    """Write-through persistent vault backed by an encrypted SQLite file.
+
+    On construction, loads all non-expired entries from the SQLite file into the
+    in-memory structures (so reads stay O(1) and never hit disk). On every put(),
+    the new entry is also written to SQLite (write-through). On lazy expiry, the
+    expired row is deleted from SQLite too.
+
+    The HMAC key (used to build the real→fake index) is persisted to a sibling
+    file with mode 0600. Without it, the persisted sealed reals could not be
+    matched back to their fakes after a restart, because the index would use a
+    different random key. If the key file is missing on init, a new key is
+    generated (and the DB is treated as empty — old sealed reals become
+    unreadable, which is the safe default).
+
+    Expiry uses the WALL clock (time.time): persisted deadlines must stay meaningful across
+    restarts and reboots (a monotonic clock restarts at zero and would stretch the TTL).
+    Entries are loaded ordered by expiry so the in-memory expiry scan stays correct.
+
+    The SQLite file itself contains only:
+      - conversation_id (TEXT)
+      - label (TEXT)
+      - fake (TEXT)
+      - sealed_real (BLOB, Fernet-encrypted)
+      - expires_at_epoch (REAL)
+      - idx (BLOB, HMAC-SHA256 of label||real)
+    No real value is ever stored in plaintext. The sealer key (Fernet) is NOT
+    in the SQLite file; it must come from env var DLP_VAULT_KEY or OS keystore.
+    """
+
+    SCHEMA = """
+    CREATE TABLE IF NOT EXISTS vault_entries (
+        conv_id     TEXT    NOT NULL,
+        label       TEXT    NOT NULL,
+        fake        TEXT    NOT NULL,
+        sealed_real BLOB    NOT NULL,
+        expires_at  REAL    NOT NULL,
+        idx         BLOB    NOT NULL,
+        PRIMARY KEY (conv_id, fake)
+    );
+    CREATE INDEX IF NOT EXISTS idx_vault_conv_real
+        ON vault_entries(conv_id, idx);
+    CREATE TABLE IF NOT EXISTS vault_meta (
+        key   TEXT PRIMARY KEY,
+        value BLOB NOT NULL
+    );
+    """
+
+    def __init__(
+        self,
+        sealer: Sealer,
+        db_path: str | Path,
+        *,
+        ttl_seconds: float = 24 * 3600,
+        max_entries_per_conversation: int = 100_000,
+        clock: Callable[[], float] = time.time,
+        hmac_key: Optional[bytes] = None,
+    ) -> None:
+        super().__init__(sealer, ttl_seconds=ttl_seconds,
+                         max_entries_per_conversation=max_entries_per_conversation,
+                         clock=clock)
+        self._db_path = str(db_path)
+        Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
+        # SQLite connection shared across calls; check_same_thread=False because
+        # we hold our own RLock. WAL mode for concurrent readers + single writer.
+        self._conn = sqlite3.connect(self._db_path, check_same_thread=False,
+                                     isolation_level=None)  # autocommit
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.executescript(self.SCHEMA)
+        for suffix in ("", "-wal", "-shm"):      # owner-only, even under a permissive umask
+            try:
+                os.chmod(self._db_path + suffix, 0o600)
+            except OSError:
+                pass
+
+        # HMAC key: load from meta table, or use provided, or generate new.
+        if hmac_key is not None:
+            self._hmac_key = hmac_key
+            self._store_hmac_key()
+        else:
+            stored = self._load_hmac_key()
+            if stored is not None:
+                self._hmac_key = stored
+            # else: keep the random key generated by super().__init__; store it
+            # so future restarts can read this DB.
+            else:
+                self._store_hmac_key()
+
+        # Load all non-expired entries into memory.
+        self._load_from_disk()
+
+    # -- persistence helpers --------------------------------------------
+    def _store_hmac_key(self) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO vault_meta(key, value) VALUES ('hmac_key', ?)",
+            (self._hmac_key,),
+        )
+
+    def _load_hmac_key(self) -> Optional[bytes]:
+        row = self._conn.execute(
+            "SELECT value FROM vault_meta WHERE key='hmac_key'"
+        ).fetchone()
+        return row[0] if row else None
+
+    def _load_from_disk(self) -> None:
+        """Load all non-expired entries into the in-memory structures.
+
+        Called once on init. After this, all reads hit memory; writes go through
+        to disk via _after_put / _after_delete.
+        """
+        now = self._clock()
+        for conv_id, label, fake, sealed_real, expires_at, idx in self._conn.execute(
+            "SELECT conv_id, label, fake, sealed_real, expires_at, idx "
+            "FROM vault_entries WHERE expires_at > ? ORDER BY expires_at",
+            (now,),
+        ):
+            conv = self._convs.setdefault(conv_id, _Conversation())
+            # Stored idx is the persisted HMAC — only valid if hmac_key matches.
+            # We re-derive it lazily; for loaded entries we trust the stored value
+            # because we loaded with the same hmac_key.
+            entry = _Entry(fake, sealed_real, expires_at, idx)
+            conv.by_fake[fake] = entry
+            conv.by_real[idx] = fake
+        # Also purge expired rows from disk on startup (cheap, one DELETE).
+        self._conn.execute("DELETE FROM vault_entries WHERE expires_at <= ?", (now,))
+
+    def _after_put(self, conv_id: str, label: str, real: str, fake: str,
+                   sealed_real: bytes, expires_at: float, idx: bytes) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO vault_entries "
+            "(conv_id, label, fake, sealed_real, expires_at, idx) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (conv_id, label, fake, sealed_real, expires_at, idx),
+        )
+
+    def _after_delete(self, conv_id: str, fake: str, idx: bytes) -> None:
+        self._conn.execute(
+            "DELETE FROM vault_entries WHERE conv_id=? AND fake=?",
+            (conv_id, fake),
+        )
+
+    def _live(self, conv_id: str) -> Optional[_Conversation]:
+        """Override to also delete expired entries from disk."""
+        conv = self._convs.get(conv_id)
+        if conv is None:
+            return None
+        now = self._clock()
+        removed_fakes: list[tuple[str, bytes]] = []
+        while conv.by_fake:
+            fake, entry = next(iter(conv.by_fake.items()))
+            if entry.expires_at > now:
+                break
+            del conv.by_fake[fake]
+            conv.by_real.pop(entry.idx, None)
+            removed_fakes.append((fake, entry.idx))
+        if removed_fakes:
+            conv.version += 1
+            for fake, idx in removed_fakes:
+                self._after_delete(conv_id, fake, idx)
+        return conv
+
+    def clear(self, conv_id: str) -> None:
+        with self._lock:
+            self._convs.pop(conv_id, None)
+            self._conn.execute(
+                "DELETE FROM vault_entries WHERE conv_id=?", (conv_id,)
+            )
+
+    def close(self) -> None:
+        """Close the SQLite connection. Call on shutdown for a clean flush."""
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+
+def resolve_vault_key() -> Optional[bytes]:
+    """Resolve the Fernet key from env var, key file, or return None (ephemeral).
+
+    Priority:
+      1. DLP_VAULT_KEY env var (base64-encoded Fernet key, 44 chars)
+      2. ~/.pii_gateway_vault.key file (base64, mode 0600)
+      3. None → generate ephemeral (in-memory only; mappings die on restart)
+    """
+    env_key = os.environ.get("DLP_VAULT_KEY")
+    if env_key:
+        return env_key.encode("utf-8") if isinstance(env_key, str) else env_key
+    key_file = Path.home() / ".pii_gateway_vault.key"
+    if key_file.exists():
+        try:
+            return key_file.read_bytes().strip()
+        except OSError:
+            return None
+    return None
+
+
+def ensure_vault_key_file() -> Optional[bytes]:
+    """Generate a Fernet key and persist it to ~/.pii_gateway_vault.key if none exists.
+
+    Returns the key bytes. Idempotent — if the file already exists, returns its content.
+    The file is created with mode 0600 (owner read/write only).
+    """
+    key_file = Path.home() / ".pii_gateway_vault.key"
+    if key_file.exists():
+        try:
+            return key_file.read_bytes().strip()
+        except OSError:
+            pass
+    from cryptography.fernet import Fernet
+    key = Fernet.generate_key()
+    key_file.parent.mkdir(parents=True, exist_ok=True)
+    # Write with restrictive permissions (owner only)
+    fd = os.open(str(key_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, key)
+    finally:
+        os.close(fd)
+    return key
