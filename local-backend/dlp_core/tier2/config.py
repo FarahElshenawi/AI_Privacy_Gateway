@@ -39,6 +39,8 @@ class Tier2Config:
     threshold: float = 0.3
     chunk_size: int = 384
     chunk_overlap: int = 64
+    window_chars: int = 6000        # text is scanned in windows of this size (budget checked between them)
+    window_overlap: int = 200
     enabled: bool = True
 
     @property

@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
 from app.multimodal.pipeline import MultimodalPipeline
+from app.pipeline.engine import FILE_STRICT_DEFAULT
 from app.security.auth import verify_token
 from app.security.origin_check import check_origin
 
@@ -57,7 +58,7 @@ async def process_file(
     out_path = tmp_path + "_masked" + suffix
 
     try:
-        result = await run_in_threadpool(MultimodalPipeline().process, tmp_path, out_path, conversation_id)
+        result = await run_in_threadpool(MultimodalPipeline(strict=FILE_STRICT_DEFAULT).process, tmp_path, out_path, conversation_id)
     except Exception:
         _cleanup(tmp_path, out_path)
         raise HTTPException(status_code=500, detail="Processing failed")

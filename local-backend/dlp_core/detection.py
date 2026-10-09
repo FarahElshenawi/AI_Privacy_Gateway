@@ -69,7 +69,15 @@ class Status(str, Enum):
 class DetectorSpec:
     detector: Detector
     critical: bool = False       # failure blocks the request instead of just degrading it
-    timeout_s: float = 1.0
+    timeout_s: float = 1.0       # base budget
+    per_kchar_s: float = 0.0     # extra budget per 1000 characters (so a 100 KB file batch is not judged like a prompt)
+    max_s: Optional[float] = None        # cap for interactive requests (None = no cap)
+    file_max_s: Optional[float] = None   # cap for file batches (falls back to max_s)
+
+    def budget(self, n_chars: int, mode: str = "interactive") -> float:
+        b = self.timeout_s + self.per_kchar_s * n_chars / 1000.0
+        cap = (self.file_max_s if mode == "file" and self.file_max_s is not None else self.max_s)
+        return min(b, cap) if cap is not None else b
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,11 +143,11 @@ class DetectionPipeline:
     def close(self) -> None:
         self._pool.shutdown(wait=False, cancel_futures=True)
 
-    def run(self, text: str) -> DetectionResult:
+    def run(self, text: str, *, mode: str = "interactive") -> DetectionResult:
         if len(text) > self._max_len:
             raise ValueError(f"text longer than {self._max_len}; chunk it first")
         t0 = time.perf_counter()
-        launched: list[tuple[DetectorSpec, Optional[Future], float]] = []
+        launched: list[tuple[DetectorSpec, Optional[Future], float, float]] = []
         reports: dict[str, DetectorReport] = {}
 
         for spec in self._specs:
@@ -159,13 +167,20 @@ class DetectionPipeline:
                     reports[det.name] = self._report(spec, Status.TIMEOUT, 0.0, 0, "StillBusy")
                     continue
                 self._abandoned.pop(det.name, None)
-                fut = self._pool.submit(det.scan, text)
-            launched.append((spec, fut, time.perf_counter()))
+                started_at = time.perf_counter()
+                budget = spec.budget(len(text), mode)
+                if getattr(det, "supports_deadline", False):
+                    # cooperative: the detector stops between windows once the budget is spent,
+                    # so an abandoned call frees the model instead of burning CPU to the end.
+                    fut = self._pool.submit(det.scan, text, deadline=started_at + budget)
+                else:
+                    fut = self._pool.submit(det.scan, text)
+            launched.append((spec, fut, started_at, budget))
 
         spans: list[Span] = []
-        for spec, fut, started in launched:
+        for spec, fut, started, budget in launched:
             name = spec.detector.name
-            deadline = started + spec.timeout_s
+            deadline = started + budget
             try:
                 out = fut.result(timeout=max(0.0, deadline - time.perf_counter()))
             except FutureTimeout:
