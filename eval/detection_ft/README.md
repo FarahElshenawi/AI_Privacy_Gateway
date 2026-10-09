@@ -59,3 +59,6 @@ To use it, point `Tier2Config.model_name` at the folder. Whether to add `organiz
 * Change one thing per training run. Stronger learning rates (v3) forgot dates and addresses.
 * GLiNER2 marks spans of at most 8 words and reads `user@host.tld` as one word; deterministic Tier 1 rules cover those cases.
 * Never train on the hold-out or on a real-prompt test file.
+
+## Hold-out
+The hold-out file is not in git. From local-backend/ run: python -m dlp_core.eval.make_holdout (it writes eval/holdout_v1.jsonl). Compare its sha256 with the team's frozen value before comparing results.
