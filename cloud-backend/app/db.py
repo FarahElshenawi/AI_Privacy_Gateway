@@ -28,6 +28,9 @@ class Organization(Base):
     # SHA-256 hex digest (64 chars) of the organization's API key. The key itself is shown once
     # at creation and never stored, so a leaked database file does not leak working credentials.
     api_key = Column(String(64), nullable=False, unique=True, index=True)
+    # SHA-256 digest of the ENROLLMENT key: a separate, low-privilege secret that can only register
+    # new endpoints. It is the only credential that has to be put on employee machines.
+    enroll_key = Column(String(64), unique=True, index=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -59,7 +62,9 @@ class Endpoint(Base):
     id = Column(Integer, primary_key=True, index=True)
     org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     hostname = Column(String(255))                     # machine hostname
-    enrollment_token = Column(String(64), unique=True, index=True)
+    enrollment_token = Column(String(64), unique=True, index=True)   # legacy plaintext; migrated to token_hash
+    # SHA-256 digest of this endpoint's own token (shown once at enrollment).
+    token_hash = Column(String(64), unique=True, index=True)
     last_seen = Column(DateTime)                       # last heartbeat
     version = Column(String(32))                       # backend version
     is_active = Column(Boolean, default=True)
@@ -83,6 +88,22 @@ class AuditEvent(Base):
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
     organization = relationship("Organization", back_populates="audit_events")
+
+
+class AdminAction(Base):
+    """Who changed what with the admin key (no prompt content, no secrets)."""
+    __tablename__ = "admin_actions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    action = Column(String(64), nullable=False)        # e.g. "audit.delete", "policy.update"
+    target = Column(String(128))                       # e.g. "event:42"
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+def log_admin_action(db, org, action: str, target: str = "") -> None:
+    """Record an admin-key action (committed by the caller together with the change)."""
+    db.add(AdminAction(org_id=org.id, action=action, target=target[:128]))
 
 
 # === Database setup ===
@@ -110,8 +131,30 @@ def init_db(db_url: str | None = None):
             kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}
             engine = create_engine(url, echo=False, **kwargs)
             Base.metadata.create_all(engine)
+            _migrate(engine)
             _engines[url] = engine
     return engine
+
+
+def _migrate(engine) -> None:
+    """Idempotent, additive schema upgrade for databases created before the credential split.
+    (create_all never alters existing tables. Alembic is the long-term answer.)"""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    cols = {t: {c["name"] for c in insp.get_columns(t)} for t in ("organizations", "endpoints")}
+    with engine.begin() as conn:
+        if "enroll_key" not in cols["organizations"]:
+            conn.execute(text("ALTER TABLE organizations ADD COLUMN enroll_key VARCHAR(64)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_organizations_enroll_key ON organizations (enroll_key)"))
+        if "token_hash" not in cols["endpoints"]:
+            conn.execute(text("ALTER TABLE endpoints ADD COLUMN token_hash VARCHAR(64)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_endpoints_token_hash ON endpoints (token_hash)"))
+        # Old rows kept the token in plaintext: keep only its hash from now on.
+        rows = conn.execute(text(
+            "SELECT id, enrollment_token FROM endpoints WHERE enrollment_token IS NOT NULL AND token_hash IS NULL")).fetchall()
+        for rid, tok in rows:
+            conn.execute(text("UPDATE endpoints SET token_hash=:h, enrollment_token=NULL WHERE id=:i"),
+                         {"h": hashlib.sha256(tok.encode()).hexdigest(), "i": rid})
 
 
 def get_session(engine):
@@ -138,15 +181,22 @@ def hash_api_key(key: str) -> str:
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
-def create_organization(session, name: str, api_key: str | None = None) -> tuple["Organization", str]:
-    """Create an organization. Returns (org, plaintext_key); the key is not recoverable later."""
+def create_organization(session, name: str, api_key: str | None = None,
+                        enroll_key: str | None = None) -> tuple["Organization", str]:
+    """Create an organization. Returns (org, admin_key); keys are not recoverable later.
+    The ENROLLMENT key is available as `org.enroll_key_plain` on the returned object (once)."""
     key = api_key or secrets.token_urlsafe(32)
-    if len(key) < MIN_API_KEY_LEN:
-        raise ValueError(f"API key must be at least {MIN_API_KEY_LEN} characters")
-    org = Organization(name=name, api_key=hash_api_key(key))
+    ekey = enroll_key or secrets.token_urlsafe(32)
+    for k in (key, ekey):
+        if len(k) < MIN_API_KEY_LEN:
+            raise ValueError(f"keys must be at least {MIN_API_KEY_LEN} characters")
+    if key == ekey:
+        raise ValueError("the admin key and the enrollment key must differ")
+    org = Organization(name=name, api_key=hash_api_key(key), enroll_key=hash_api_key(ekey))
     session.add(org)
     session.commit()
     session.refresh(org)
+    org.enroll_key_plain = ekey      # not a column: only for the caller to display once
     return org, key
 
 
@@ -169,10 +219,17 @@ def seed_defaults(engine):
             # Fail closed: never start with a guessable admin key.
             raise RuntimeError(f"CLOUD_ADMIN_API_KEY must be at least {MIN_API_KEY_LEN} characters")
 
+        env_enroll = os.getenv("CLOUD_ENROLL_KEY")
+        if env_enroll is not None and len(env_enroll) < MIN_API_KEY_LEN:
+            raise RuntimeError(f"CLOUD_ENROLL_KEY must be at least {MIN_API_KEY_LEN} characters")
+        if env_enroll and env_key and env_enroll == env_key:
+            raise RuntimeError("CLOUD_ENROLL_KEY must differ from CLOUD_ADMIN_API_KEY")
+
         org = session.query(Organization).order_by(Organization.id.asc()).first()
         if org is None:
             key = env_key or secrets.token_urlsafe(32)
-            org = Organization(name="Default Organization", api_key=hash_api_key(key))
+            ekey = env_enroll or secrets.token_urlsafe(32)
+            org = Organization(name="Default Organization", api_key=hash_api_key(key), enroll_key=hash_api_key(ekey))
             session.add(org)
             session.commit()
             session.refresh(org)
@@ -184,8 +241,20 @@ def seed_defaults(engine):
                       f"    {key}\n\n"
                       "  Set CLOUD_ADMIN_API_KEY to choose your own, or to rotate it.\n" +
                       "=" * 70 + "\n", file=sys.stderr)
-        elif env_key:
-            org.api_key = hash_api_key(env_key)    # rotate/recover (also migrates old plaintext keys)
+            if not env_enroll:
+                print("  Enrollment key (give THIS to employee machines, never the admin key;\n"
+                      "  shown once; they send it as X-Enroll-Key):\n\n"
+                      f"    {ekey}\n", file=sys.stderr)
+        else:
+            if env_key:
+                org.api_key = hash_api_key(env_key)    # rotate/recover (also migrates old plaintext keys)
+            if env_enroll:
+                org.enroll_key = hash_api_key(env_enroll)
+            elif org.enroll_key is None:
+                ekey = secrets.token_urlsafe(32)       # upgrade of an older database
+                org.enroll_key = hash_api_key(ekey)
+                print("\n  Doppel cloud backend: NEW enrollment key for employee machines "
+                      f"(shown once; X-Enroll-Key):\n\n    {ekey}\n", file=sys.stderr)
             session.commit()
 
         # Query all existing policies for the default organization

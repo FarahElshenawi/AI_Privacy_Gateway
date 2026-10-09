@@ -35,7 +35,7 @@ async def lifespan(_: FastAPI):
     # user request waiting for the model load.
     threading.Thread(target=warm_tier2, name="tier2-warmup", daemon=True).start()
     # Start cloud sync (enrollment, heartbeat, audit push, policy pull).
-    # No-op if CLOUD_URL or CLOUD_API_KEY is unset — runs standalone.
+    # No-op if CLOUD_URL or CLOUD_ENROLL_KEY is unset — runs standalone.
     cloud_sync.start()
     try:
         yield

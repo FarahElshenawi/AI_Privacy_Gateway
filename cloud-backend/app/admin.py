@@ -18,7 +18,9 @@ def main(argv: list[str]) -> int:
         org, key = create_organization(session, argv[1].strip())
     finally:
         session.close()
-    print(f"organization id={org.id} name={org.name!r}\nAPI key (shown once): {key}")
+    print(f"organization id={org.id} name={org.name!r}\n"
+          f"ADMIN key (dashboard; keep secret; shown once): {key}\n"
+          f"ENROLLMENT key (give to employee machines as CLOUD_ENROLL_KEY; shown once): {org.enroll_key_plain}")
     return 0
 
 

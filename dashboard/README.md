@@ -370,7 +370,7 @@ entity type to the policies), the audit event will record only the count
 
 The audit log provides the immutable record of security-relevant events
 required for SOC 2 Type II. Pair with the cloud backend's TLS termination
-API key auth is implemented: every request carries `X-API-Key`.
+Admin key auth is implemented: every request carries `X-API-Key`. Local gateways use separate enrollment/device credentials (see the cloud backend README).
 
 ---
 

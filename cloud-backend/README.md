@@ -85,8 +85,17 @@ The cloud backend runs entirely on the customer's infrastructure. Doppel
 
 ## API endpoints
 
-All endpoints return JSON. Every `/api/*` route requires the organization's API key
-(`X-API-Key: <key>` or `Authorization: Bearer <key>`); missing/invalid keys get `401`.
+All endpoints return JSON. Three credentials, each with the least power it needs; missing/invalid
+ones get `401`:
+
+| Credential | Header | Can do |
+|---|---|---|
+| Admin key | `X-API-Key` (or `Authorization: Bearer`) | everything: policies, audit read/delete, endpoint list/deactivate, admin log, rotate enrollment key |
+| Enrollment key | `X-Enroll-Key` | `POST /api/endpoints/enroll` only (registers a device, returns its token) |
+| Device token | `X-Endpoint-Token` | heartbeat, write audit events *as itself*, read `/api/policies/export` |
+
+Audit deletions and every admin write (`policy.*`, `audit.delete`, endpoint deactivation, key rotation)
+are recorded in the admin log (`GET /api/admin/log`).
 The organization is derived from the key, so one org can never see or change another's
 data. Only a SHA-256 digest of each key is stored. Only `/health` and `/` are public.
 
@@ -161,7 +170,7 @@ tables, all owned by this service:
 | `id` | int PK | Auto-increment |
 | `org_id` | int FK | → `organizations.id` |
 | `hostname` | string(255) | Machine hostname of the local backend |
-| `enrollment_token` | string(64) | Unique — for local backend enrollment |
+| `token_hash` | string(64) | SHA-256 of the device token (the token itself is shown once, at enrollment) |
 | `last_seen` | datetime | Heartbeat timestamp |
 | `version` | string(32) | Local backend version |
 | `is_active` | bool | Default `true` |
@@ -360,15 +369,18 @@ The key is shown once; only its hash is stored. For a single-org deployment, set
 `CLOUD_ADMIN_API_KEY` (>= 24 chars) before first boot — or leave it unset and a key is
 generated and printed once in the server log. Setting it later rotates the default org's key.
 
-### 2. Distribute their `api_key`
+### 2. Distribute their enrollment key
 
-The org's `api_key` (shown once at creation) authenticates their local backends.
-Hand it to them via a secure channel — never commit it, never email it.
+Local backends get the **enrollment key**, never the admin key. It can only register a device;
+each device then receives its own token, which is revocable (deactivate it in the dashboard).
+Set `CLOUD_ENROLL_KEY` (>= 24 chars, different from the admin key) before first boot, or let it be
+generated and printed once; rotate with `POST /api/admin/rotate-enroll-key`.
+Hand it over via a secure channel — never commit it, never email it.
 
 The customer adds it to each employee's local backend `.env`:
 
 ```
-CLOUD_API_KEY=sk-doppel-a1b2c3...
+CLOUD_ENROLL_KEY=<enrollment key>
 CLOUD_URL=https://doppel-cloud.NEWCOMPANY.com
 ```
 
@@ -405,7 +417,7 @@ backend URL (not Doppel's, not localhost):
 
 ```
 CLOUD_URL=https://doppel-cloud.NEWCOMPANY.com
-CLOUD_API_KEY=sk-doppel-a1b2c3...
+CLOUD_ENROLL_KEY=<enrollment key>
 PULL_POLICY_INTERVAL=300    # seconds between policy pulls
 PUSH_AUDIT_INTERVAL=10      # seconds between audit pushes
 ```

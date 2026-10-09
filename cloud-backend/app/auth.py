@@ -14,7 +14,9 @@ from typing import Optional
 
 from fastapi import Depends, Header, HTTPException
 
-from app.db import Organization, get_db, hash_api_key
+from datetime import datetime
+
+from app.db import Endpoint, Organization, get_db, hash_api_key
 
 
 def _extract_key(x_api_key: Optional[str], authorization: Optional[str]) -> Optional[str]:
@@ -44,3 +46,60 @@ def require_org(
         raise HTTPException(status_code=401, detail="Invalid API key",
                             headers={"WWW-Authenticate": "Bearer"})
     return org
+
+
+def _unauthorized(detail: str) -> HTTPException:
+    return HTTPException(status_code=401, detail=detail, headers={"WWW-Authenticate": "Bearer"})
+
+
+def require_enroll_org(
+    x_enroll_key: Optional[str] = Header(None, alias="X-Enroll-Key"),
+    db=Depends(get_db),
+) -> Organization:
+    """ENROLLMENT key: can only register a new endpoint. Cannot read policies or audit events."""
+    if not x_enroll_key or not x_enroll_key.strip():
+        raise _unauthorized("Missing enrollment key (X-Enroll-Key header)")
+    org = (db.query(Organization)
+           .filter(Organization.enroll_key == hash_api_key(x_enroll_key.strip()),
+                   Organization.is_active.is_(True)).first())
+    if org is None:
+        raise _unauthorized("Invalid enrollment key")
+    return org
+
+
+def require_endpoint(
+    x_endpoint_token: Optional[str] = Header(None, alias="X-Endpoint-Token"),
+    db=Depends(get_db),
+) -> Endpoint:
+    """ENDPOINT token (one per device): heartbeat, write audit events, read the policy snapshot."""
+    if not x_endpoint_token or not x_endpoint_token.strip():
+        raise _unauthorized("Missing endpoint token (X-Endpoint-Token header)")
+    ep = (db.query(Endpoint)
+          .filter(Endpoint.token_hash == hash_api_key(x_endpoint_token.strip()),
+                  Endpoint.is_active.is_(True)).first())
+    if ep is None or not ep.organization.is_active:
+        raise _unauthorized("Invalid endpoint token")
+    ep.last_seen = datetime.utcnow()
+    db.commit()
+    return ep
+
+
+class Caller:
+    """Who is calling an endpoint that both admins and devices may use."""
+    def __init__(self, org: Organization, endpoint: Optional[Endpoint] = None):
+        self.org, self.endpoint = org, endpoint
+
+
+def require_org_or_endpoint(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None),
+    x_endpoint_token: Optional[str] = Header(None, alias="X-Endpoint-Token"),
+    db=Depends(get_db),
+) -> Caller:
+    """Admin key OR endpoint token. Used ONLY by the routes a device legitimately needs
+    (write audit events, read the policy snapshot)."""
+    if x_endpoint_token and x_endpoint_token.strip():
+        ep = require_endpoint(x_endpoint_token, db)
+        return Caller(ep.organization, ep)
+    org = require_org(x_api_key, authorization, db)
+    return Caller(org)

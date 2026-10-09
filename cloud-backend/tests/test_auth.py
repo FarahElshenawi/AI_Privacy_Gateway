@@ -18,7 +18,9 @@ PROTECTED = [
     # Endpoints (local-backend fleet management)
     ("GET", "/api/endpoints", None),
     ("POST", "/api/endpoints/enroll", {"hostname": "h1"}),
-    ("POST", "/api/endpoints/heartbeat", {"enrollment_token": "x" * 32}),
+    ("POST", "/api/endpoints/heartbeat", {}),
+    ("GET", "/api/admin/log", None),
+    ("POST", "/api/admin/rotate-enroll-key", None),
     ("DELETE", "/api/endpoints/1", None),
 ]
 

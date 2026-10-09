@@ -8,7 +8,9 @@ Run with:
 
 Environment:
     DATABASE_URL         database URL (default: sqlite:///./cloud_backend.db)
-    CLOUD_ADMIN_API_KEY  API key of the default organization (>= 24 chars). If unset on first
+    CLOUD_ADMIN_API_KEY  ADMIN key of the default organization (>= 24 chars): dashboard, policy edits, audit reads.
+    CLOUD_ENROLL_KEY     ENROLLMENT key (>= 24 chars, different from the admin key): the only secret that goes on
+                         employee machines; it can only register devices. If unset on first
                          boot, one is generated and printed once. Setting it later rotates the key.
     CORS_ORIGINS         comma-separated dashboard origins (default: local Vite dev servers)
 """
@@ -22,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from app.db import init_db, seed_defaults
-from app.api import policy, audit, endpoints
+from app.api import policy, audit, endpoints, admin as admin_api
 
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
 
@@ -61,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(policy.router)
     app.include_router(audit.router)
     app.include_router(endpoints.router)
+    app.include_router(admin_api.router)
 
     @app.get("/health", tags=["health"])
     async def health() -> dict:

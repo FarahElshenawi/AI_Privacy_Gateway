@@ -8,12 +8,16 @@ Three responsibilities, all running in background threads:
   3. Policy pull: every 5 min, GET /api/policies/export and update the local
      routing table. Dashboard policy changes take effect without a restart.
 
-The module is designed to be optional: if CLOUD_URL or CLOUD_API_KEY is unset,
+The module is designed to be optional: if CLOUD_URL or CLOUD_ENROLL_KEY is unset (and no saved device token exists),
 all three loops are no-ops and the local backend runs standalone (as before).
 
 Configuration (env vars):
     CLOUD_URL              required  e.g. https://doppel-cloud.acme.io
-    CLOUD_API_KEY          required  the org's API key (X-API-Key header)
+    CLOUD_ENROLL_KEY       required  the org's ENROLLMENT key (X-Enroll-Key). It can only register
+                                     this device; it cannot read or change anything. The org admin
+                                     key is never needed (or accepted) here.
+    DLP_CLOUD_TOKEN_FILE   default ~/.pii_gateway_cloud_endpoint.json (0600) — the per-device token
+                                     returned by enrollment; used for heartbeat, audit, policy pull
     CLOUD_SYNC_ENABLED     default true   set false to disable all sync
     CLOUD_HEARTBEAT_INTERVAL_S   default 60
     CLOUD_AUDIT_FLUSH_INTERVAL_S default 10
@@ -56,7 +60,12 @@ def _env_int(name: str, default: int) -> int:
 
 
 CLOUD_URL = os.environ.get("CLOUD_URL", "").rstrip("/")
-CLOUD_API_KEY = os.environ.get("CLOUD_API_KEY", "")
+CLOUD_ENROLL_KEY = os.environ.get("CLOUD_ENROLL_KEY", "")
+if os.environ.get("CLOUD_API_KEY"):
+    logger.warning("CLOUD_API_KEY is no longer used (the admin key must not live on endpoints). "
+                   "Set CLOUD_ENROLL_KEY instead.")
+TOKEN_FILE = os.environ.get("DLP_CLOUD_TOKEN_FILE") or os.path.join(
+    os.path.expanduser("~"), ".pii_gateway_cloud_endpoint.json")
 CLOUD_SYNC_ENABLED = _env_bool("CLOUD_SYNC_ENABLED", True)
 HEARTBEAT_INTERVAL_S = _env_int("CLOUD_HEARTBEAT_INTERVAL_S", 60)
 AUDIT_FLUSH_INTERVAL_S = _env_int("CLOUD_AUDIT_FLUSH_INTERVAL_S", 10)
@@ -172,65 +181,124 @@ class CloudAuditHandler(logging.Handler):
 
 # --- HTTP helpers (stdlib only, no requests dependency) ---------------------
 
-def _post_json(url: str, api_key: str, body: dict, timeout: float = 5.0) -> Optional[dict]:
-    """POST JSON to the cloud backend. Returns the parsed response, or None on failure."""
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data, method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "X-API-Key": api_key,
-        },
-    )
+class _Unauthorized(Exception):
+    """The cloud answered 401: the credential was rejected (revoked device, rotated key)."""
+
+
+def _request(method: str, url: str, headers: dict, body: Optional[dict], timeout: float) -> Optional[dict]:
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    h = dict(headers)
+    if data is not None:
+        h["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=h)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError) as e:
-        logger.debug("cloud POST %s failed: %s", url, e)
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise _Unauthorized() from e
+        logger.debug("cloud %s %s failed: HTTP %s", method, url, e.code)
+        return None
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, OSError) as e:
+        logger.debug("cloud %s %s failed: %s", method, url, e)
         return None
 
 
-def _get_json(url: str, api_key: str, timeout: float = 5.0) -> Optional[dict]:
-    """GET JSON from the cloud backend. Returns the parsed response, or None on failure."""
-    req = urllib.request.Request(
-        url, method="GET",
-        headers={"X-API-Key": api_key},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError) as e:
-        logger.debug("cloud GET %s failed: %s", url, e)
-        return None
+def _post_json(url: str, headers: dict, body: dict, timeout: float = 5.0) -> Optional[dict]:
+    """POST JSON. Returns the parsed response, None on failure; raises _Unauthorized on 401."""
+    return _request("POST", url, headers, body, timeout)
 
 
-# --- Enrollment + heartbeat --------------------------------------------------
+def _get_json(url: str, headers: dict, timeout: float = 5.0) -> Optional[dict]:
+    """GET JSON. Returns the parsed response, None on failure; raises _Unauthorized on 401."""
+    return _request("GET", url, headers, None, timeout)
 
-_enrollment_token: Optional[str] = None
+
+# --- Device identity (enrollment key -> per-device token) ---------------------
+
+_endpoint_token: Optional[str] = None
 _endpoint_id: Optional[int] = None
-_enrollment_lock = threading.Lock()
+_token_lock = threading.Lock()
+_token_loaded = False
+
+
+def _load_saved_token() -> None:
+    """Reuse the token from a previous run, but only for the same cloud URL."""
+    global _endpoint_token, _endpoint_id, _token_loaded
+    _token_loaded = True
+    try:
+        with open(TOKEN_FILE, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        if d.get("cloud_url") == CLOUD_URL and isinstance(d.get("endpoint_token"), str):
+            _endpoint_token, _endpoint_id = d["endpoint_token"], d.get("endpoint_id")
+    except (OSError, ValueError):
+        pass
+
+
+def _save_token(token: str, endpoint_id: Optional[int]) -> None:
+    try:
+        fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"cloud_url": CLOUD_URL, "endpoint_id": endpoint_id, "endpoint_token": token}, f)
+        try:
+            os.chmod(TOKEN_FILE, 0o600)
+        except OSError:
+            pass
+    except OSError as e:
+        logger.warning("Could not save the device token (%s); it will re-enroll on restart", e)
+
+
+def _forget_token() -> None:
+    global _endpoint_token, _endpoint_id
+    with _token_lock:
+        _endpoint_token = None
+        _endpoint_id = None
+    try:
+        os.remove(TOKEN_FILE)
+    except OSError:
+        pass
+
+
+def _have_credentials() -> bool:
+    if not CLOUD_URL:
+        return False
+    if not _token_loaded:
+        _load_saved_token()
+    return bool(_endpoint_token or CLOUD_ENROLL_KEY)
+
+
+def _auth() -> Optional[dict]:
+    """Headers for device calls, enrolling first if there is no token yet."""
+    if not _token_loaded:
+        _load_saved_token()
+    if _endpoint_token is None and not _enroll():
+        return None
+    return {"X-Endpoint-Token": _endpoint_token} if _endpoint_token else None
 
 
 def _hostname() -> str:
     try:
-        return socket.gethostname()[:255]
+        return re.sub(r"[^A-Za-z0-9_.-]", "-", socket.gethostname())[:255] or "unknown"
     except Exception:
         return "unknown"
 
 
 def _enroll() -> bool:
-    """Enroll this local backend with the cloud. Returns True on success."""
-    global _enrollment_token, _endpoint_id
-    if not CLOUD_URL or not CLOUD_API_KEY:
+    """Register this device with the enrollment key and keep the token it returns."""
+    global _endpoint_token, _endpoint_id
+    if not CLOUD_URL or not CLOUD_ENROLL_KEY:
         return False
-    # Local backend version (could come from a __version__ module, hardcode for now)
-    version = "1.0.0"
-    body = {"hostname": _hostname(), "version": version}
-    resp = _post_json(f"{CLOUD_URL}/api/endpoints/enroll", CLOUD_API_KEY, body)
-    if resp and "enrollment_token" in resp:
-        with _enrollment_lock:
-            _enrollment_token = resp["enrollment_token"]
-            _endpoint_id = resp.get("endpoint_id")
+    try:
+        resp = _post_json(f"{CLOUD_URL}/api/endpoints/enroll", {"X-Enroll-Key": CLOUD_ENROLL_KEY},
+                          {"hostname": _hostname(), "version": "1.0.0"})
+    except _Unauthorized:
+        logger.error("Enrollment rejected: CLOUD_ENROLL_KEY is wrong or was rotated")
+        return False
+    if resp and resp.get("endpoint_token"):
+        with _token_lock:
+            _endpoint_token, _endpoint_id = resp["endpoint_token"], resp.get("endpoint_id")
+        _save_token(_endpoint_token, _endpoint_id)
         logger.info("Enrolled as endpoint %s", _endpoint_id)
         return True
     logger.warning("Enrollment failed")
@@ -238,19 +306,16 @@ def _enroll() -> bool:
 
 
 def _heartbeat() -> None:
-    """Send a single heartbeat. Re-enrolls if the token is missing."""
-    global _enrollment_token
-    if not CLOUD_URL or not CLOUD_API_KEY:
+    """One heartbeat. A 401 means this device was revoked: drop the token and re-enroll next cycle."""
+    if not _have_credentials():
         return
-    if _enrollment_token is None:
-        _enroll()
+    hdr = _auth()
+    if hdr is None:
         return
-    body = {"enrollment_token": _enrollment_token, "version": "1.0.0"}
-    resp = _post_json(f"{CLOUD_URL}/api/endpoints/heartbeat", CLOUD_API_KEY, body)
-    if resp is None:
-        # Heartbeat failed — token may be invalid. Re-enroll next cycle.
-        with _enrollment_lock:
-            _enrollment_token = None
+    try:
+        _post_json(f"{CLOUD_URL}/api/endpoints/heartbeat", hdr, {"version": "1.0.0"})
+    except _Unauthorized:
+        _forget_token()
 
 
 def _heartbeat_loop(stop_event: threading.Event) -> None:
@@ -284,19 +349,27 @@ def _aggregate(events: list[dict]) -> list[dict]:
 def _flush_audit() -> None:
     """Drain the buffer and POST aggregated events. Anything the cloud didn't accept is put
     back so a cloud outage delays audit instead of losing it (bounded by AUDIT_BUFFER_MAX)."""
-    if not CLOUD_URL or not CLOUD_API_KEY:
+    if not _have_credentials():
         _audit_buffer.drain()   # sync not configured: don't let the buffer grow
         return
     events = _audit_buffer.drain()
     if not events:
         return
+    aggregated = _aggregate(events)
+    hdr = _auth()
+    if hdr is None:                      # cloud unreachable / not enrolled yet: keep everything
+        _audit_buffer.requeue(aggregated)
+        return
     failed: list[dict] = []
-    for i, event in enumerate(_aggregate(events)):
-        if _post_json(f"{CLOUD_URL}/api/audit", CLOUD_API_KEY, event) is None:
-            failed.append(event)
-            # Cloud likely down: stop hammering it, requeue the rest as-is.
-            rest = _aggregate(events)[i + 1:]
-            failed.extend(rest)
+    for i, event in enumerate(aggregated):
+        try:
+            ok = _post_json(f"{CLOUD_URL}/api/audit", hdr, event) is not None
+        except _Unauthorized:
+            _forget_token()
+            ok = False
+        if not ok:
+            # Cloud likely down or token revoked: stop hammering it, requeue the rest as-is.
+            failed.extend(aggregated[i:])
             break
     if failed:
         _audit_buffer.requeue(failed)
@@ -351,9 +424,16 @@ def apply_cloud_policies(policies: dict) -> tuple[int, list[str]]:
 
 def _pull_and_apply_policies() -> None:
     """GET /api/policies/export and apply it to the running masking pipeline."""
-    if not CLOUD_URL or not CLOUD_API_KEY:
+    if not _have_credentials():
         return
-    policies = _get_json(f"{CLOUD_URL}/api/policies/export", CLOUD_API_KEY)
+    hdr = _auth()
+    if hdr is None:
+        return
+    try:
+        policies = _get_json(f"{CLOUD_URL}/api/policies/export", hdr)
+    except _Unauthorized:
+        _forget_token()
+        return
     if not isinstance(policies, dict):      # None = fetch failed; {} = valid (all defaults)
         return
     try:
@@ -395,17 +475,17 @@ def start() -> None:
     """Install the audit handler and start the three background loops.
 
     Call from app.main lifespan startup. No-op if CLOUD_SYNC_ENABLED is false
-    or if CLOUD_URL / CLOUD_API_KEY are unset.
+    or if CLOUD_URL / CLOUD_ENROLL_KEY are unset.
     """
     if not CLOUD_SYNC_ENABLED:
         logger.info("Cloud sync disabled by CLOUD_SYNC_ENABLED=false")
         return
-    if not CLOUD_URL or not CLOUD_API_KEY:
-        logger.info("Cloud sync disabled: CLOUD_URL or CLOUD_API_KEY not set")
+    if not _have_credentials():
+        logger.info("Cloud sync disabled: CLOUD_URL or CLOUD_ENROLL_KEY not set")
         return
     if not _url_is_secure(CLOUD_URL):
         logger.error("Cloud sync disabled: CLOUD_URL must be https:// (or localhost). "
-                     "The API key and policies must not travel over plain http.")
+                     "The credentials and policies must not travel over plain http.")
         return
 
     # Install the audit handler so emit_audit() / emit_demask_audit() records
@@ -437,9 +517,9 @@ def stop() -> None:
 def status() -> dict:
     """Coarse status for /health (no secrets)."""
     return {
-        "enabled": CLOUD_SYNC_ENABLED and bool(CLOUD_URL and CLOUD_API_KEY),
+        "enabled": CLOUD_SYNC_ENABLED and bool(CLOUD_URL and (CLOUD_ENROLL_KEY or _endpoint_token)),
         "cloud_url": CLOUD_URL or None,
-        "enrolled": _enrollment_token is not None,
+        "enrolled": _endpoint_token is not None,
         "endpoint_id": _endpoint_id,
         "audit_buffered": len(_audit_buffer),
     }
