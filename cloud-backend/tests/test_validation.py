@@ -86,3 +86,10 @@ def test_demask_event_type_is_accepted_and_not_counted_as_mask(client, A):
     stats = client.get("/api/audit/stats", headers=A).json()
     assert stats["by_event_type"].get("demask") == 1
     assert stats["total_entities_masked"] == 0
+
+
+def test_audit_timestamps_are_utc_with_a_zone_marker(client, A):
+    r = client.post("/api/audit", headers=A, json={"event_type": "mask", "entity_count": 1})
+    assert r.status_code == 201
+    assert r.json()["timestamp"].endswith("Z")
+    assert client.get("/api/audit", headers=A).json()[0]["timestamp"].endswith("Z")

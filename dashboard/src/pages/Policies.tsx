@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Policy } from "../api/client";
-import { Plus, Trash2, Lock, RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck } from "lucide-react";
+import { Plus, Trash2, Lock, ShieldCheck } from "lucide-react";
 
 const ACTIONS: Policy["action"][] = ["faker", "redact", "keep", "block"];
 
@@ -29,8 +29,6 @@ export function Policies() {
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<{ success: boolean; message: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [newType, setNewType] = useState("");
   const [newAction, setNewAction] = useState<Policy["action"]>("faker");
@@ -67,25 +65,6 @@ export function Policies() {
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Update failed");
-    }
-  };
-
-  const syncToGateway = async () => {
-    setSyncing(true);
-    setSyncStatus(null);
-    try {
-      const res = await api.syncPoliciesToLocalGateway();
-      setSyncStatus({
-        success: true,
-        message: `Successfully synchronized ${res.applied} policies with local gateway routing engine!`,
-      });
-    } catch (e) {
-      setSyncStatus({
-        success: false,
-        message: e instanceof Error ? e.message : "Failed to sync to local gateway (make sure backend is running on :8765)",
-      });
-    } finally {
-      setSyncing(false);
     }
   };
 
@@ -148,15 +127,6 @@ export function Policies() {
           </p>
         </div>
         <div className="flex items-center gap-2.5 flex-shrink-0">
-          <button
-            className="btn-secondary flex items-center gap-2"
-            onClick={syncToGateway}
-            disabled={syncing}
-            title="Export cloud policies and apply to the local gateway routing engine (port 8765)"
-          >
-            <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
-            <span>{syncing ? "Syncing…" : "Sync to Gateway"}</span>
-          </button>
           {!adding && (
             <button
               className="btn-primary flex items-center gap-2"
@@ -168,32 +138,6 @@ export function Policies() {
           )}
         </div>
       </div>
-
-      {/* Sync Status Banner */}
-      {syncStatus && (
-        <div
-          className={`card p-4 border-l-4 flex items-center justify-between gap-3 ${
-            syncStatus.success ? "border-l-emerald-500 bg-emerald-500/5" : "border-l-rose-500 bg-rose-500/5"
-          }`}
-        >
-          <div className="flex items-center gap-2.5">
-            {syncStatus.success ? (
-              <CheckCircle2 className="h-5 w-5 text-emerald-400 flex-shrink-0" />
-            ) : (
-              <AlertTriangle className="h-5 w-5 text-rose-400 flex-shrink-0" />
-            )}
-            <p className={`text-[13px] ${syncStatus.success ? "text-emerald-300" : "text-rose-300"}`}>
-              {syncStatus.message}
-            </p>
-          </div>
-          <button
-            className="text-[12px] text-[var(--muted)] hover:text-[var(--ink)] mono"
-            onClick={() => setSyncStatus(null)}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
 
       {error && (
         <div className="card p-4 border-l-2" style={{ borderLeftColor: "var(--danger)" }}>
@@ -348,10 +292,10 @@ export function Policies() {
 
       <div className="p-4 card bg-[var(--subtle)]/30 border-dashed text-[12px] text-[var(--muted)] space-y-1">
         <p>
-          <strong className="text-[var(--ink)]">How it works:</strong> Clicking any action chip immediately updates the policy in the Cloud Backend.
+          <strong className="text-[var(--ink)]">How it works:</strong> Clicking any action chip immediately updates the policy in the cloud backend.
         </p>
         <p>
-          Click <strong className="text-[var(--ink)]">Sync to Gateway</strong> to push all active policies directly to your local gateway runtime (<code className="mono">http://127.0.0.1:8765/api/policies/apply</code>).
+          Each device's local backend pulls the policies from the cloud backend on a timer (default every 5 minutes), so changes reach gateways without any manual step.
         </p>
         <p>
           <strong className="text-amber-400">Security Guard:</strong> Critical secrets (API keys, credentials, government IDs) have the <code className="mono">keep</code> option disabled to guarantee security.

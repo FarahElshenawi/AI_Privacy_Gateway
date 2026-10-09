@@ -12,11 +12,11 @@ accepts ONLY the fields below (extra fields are rejected with 422), entity_types
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_serializer, field_validator
 from sqlalchemy import func
 
 from app.auth import require_org
@@ -53,6 +53,11 @@ class AuditEventResponse(BaseModel):
     entity_count: int
     latency_ms: Optional[int]
     timestamp: datetime
+
+    @field_serializer("timestamp")
+    def _utc(self, v: datetime) -> str:
+        """Stored as naive UTC; send it WITH a zone so clients don't read it as local time."""
+        return (v if v.tzinfo else v.replace(tzinfo=timezone.utc)).isoformat().replace("+00:00", "Z")
 
 
 @router.post("", response_model=AuditEventResponse, status_code=201)

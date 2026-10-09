@@ -5,7 +5,6 @@ import { ShieldCheck, Server, Key, FileSignature } from "lucide-react";
 export function Settings() {
   const [health, setHealth] = useState<string | null>(null);
   const [exportedPolicies, setExportedPolicies] = useState<Record<string, string> | null>(null);
-  const [signedPolicy, setSignedPolicy] = useState(true);
   const [keyInput, setKeyInput] = useState(getApiKey());
 
   const loadPolicies = () =>
@@ -133,42 +132,6 @@ export function Settings() {
           />
           <button type="submit" className="btn-primary px-4 rounded-lg text-[13px]">Save</button>
         </form>
-      </div>
-
-      {/* Signed policy toggle */}
-      <div className="card p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <FileSignature className="h-4 w-4 text-[var(--primary)]" />
-          <span className="text-[14px] font-semibold text-[var(--ink)]">
-            Signed policy distribution
-          </span>
-        </div>
-        <p className="text-[13px] text-[var(--body)] mb-4">
-          When enabled, every policy update is signed by the cloud backend&apos;s
-          signing key. The local backend rejects unsigned policies. Recommended
-          for production deployments.
-        </p>
-        <label className="flex items-center gap-3 cursor-pointer">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={signedPolicy}
-            onClick={() => setSignedPolicy((v) => !v)}
-            className="relative h-6 w-11 rounded-full transition-colors"
-            style={{
-              background: signedPolicy ? "var(--primary)" : "var(--subtle)",
-              border: "1px solid var(--border)",
-            }}
-          >
-            <span
-              className="absolute top-0.5 h-4 w-4 rounded-full bg-[var(--bg)] transition-transform"
-              style={{ left: signedPolicy ? "calc(100% - 18px)" : "2px" }}
-            />
-          </button>
-          <span className="text-[13px] text-[var(--ink)]">
-            {signedPolicy ? "Enabled — policies are signed" : "Disabled — policies are unsigned"}
-          </span>
-        </label>
       </div>
 
       {/* Exported policy snapshot */}

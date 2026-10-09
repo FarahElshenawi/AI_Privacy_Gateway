@@ -95,6 +95,13 @@
   --primary-h: #5AE6A8;       /* emerald hover — slightly brighter */
   --danger: #B85450;          /* blocked states — muted brick red (desaturated) */
 
+  /* Legacy names still referenced by components: alias them to the real tokens */
+  --mist-dim: var(--body);
+  --mist: var(--ink);
+  --lime: var(--primary);
+  --oxblood: var(--primary);
+  --gold: var(--primary);
+
   /* shadcn aliasing */
   --background: #0C0D0C;
   --foreground: #E8E8E5;
@@ -106,7 +113,6 @@
   --primary-foreground: #0C0D0C;
   --secondary: #1C1E1D;
   --secondary-foreground: #E8E8E5;
-  --muted: #1C1E1D;
   --muted-foreground: #7A7C7A;
   --accent: #2FD58F;
   --accent-foreground: #0C0D0C;

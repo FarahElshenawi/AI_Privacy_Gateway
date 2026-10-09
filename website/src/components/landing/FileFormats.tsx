@@ -23,7 +23,7 @@ export function FileFormats() {
               Files keep their format.
             </h2>
             <p className="mt-4 text-[17px] leading-[1.55] text-[var(--mist-dim)] font-medium">
-              Layout, images, formulas, and formatting are all preserved. The file your team uploaded is the same file the AI tool sees — just with sensitive values swapped.
+              Text in PDF and Word files is masked in place. Excel files come back as a cleaned copy with sensitive cells masked; charts, images and pivot tables are dropped. Scanned PDFs and images are blocked, not guessed at.
             </p>
           </Reveal>
         </div>

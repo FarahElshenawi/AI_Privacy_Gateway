@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
+import { CTA_HREF, CTA_LABEL } from "@/lib/site";
 
 export function CTA() {
   return (
@@ -36,11 +37,11 @@ export function CTA() {
 
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
             <a
-              href="#demo"
+              href={CTA_HREF}
               className="btn-lime px-7 py-4 text-[15px] inline-flex items-center gap-2.5 w-full sm:w-auto justify-center"
               style={{ transform: "rotate(-1.5deg)" }}
             >
-              <span>Book a demo</span>
+              <span>{CTA_LABEL}</span>
               <ArrowRight className="h-4 w-4" />
             </a>
           </div>
