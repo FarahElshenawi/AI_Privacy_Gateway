@@ -10,5 +10,7 @@ import os
 # Tests must NOT write to the user's real ~/.pii_gateway_vault.db — set this BEFORE
 # any app module import so engine.py reads the env var at import time.
 os.environ.setdefault("DLP_VAULT_PERSIST", "false")
+# The model is not installed in CI; strict file mode (the production default) would reject every file.
+os.environ.setdefault("DLP_FILE_STRICT", "false")
 
 sys.path.insert(0, os.path.dirname(__file__))

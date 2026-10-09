@@ -20,6 +20,7 @@ from __future__ import annotations
 import importlib.util
 import re
 import threading
+import time
 from typing import Any, Iterable, Optional, Sequence
 
 from ..span import Span
@@ -109,6 +110,28 @@ def parse_entities(text: str, entities: Any) -> tuple[list[Span], int]:
     return spans, unlocated
 
 
+def iter_windows(text: str, size: int, overlap: int):
+    """Yield (offset, window) pieces of at most `size` chars, cut at whitespace, overlapping by
+    ~`overlap` so an entity on a boundary is whole in one window."""
+    n = len(text)
+    if n <= size:
+        yield 0, text
+        return
+    pos = 0
+    while pos < n:
+        end = min(n, pos + size)
+        if end < n:
+            cut = max(text.rfind("\n", pos + size // 2, end), text.rfind(" ", pos + size // 2, end))
+            if cut > pos:
+                end = cut
+        yield pos, text[pos:end]
+        if end >= n:
+            break
+        nxt = max(end - overlap, pos + 1)
+        ws = max(text.find(" ", nxt, end), text.find("\n", nxt, end))      # start the next window on a word
+        pos = ws + 1 if ws != -1 else end
+
+
 # ------------------------------------------------------------------ engine
 class Tier2Engine:
     name = "tier2"
@@ -139,21 +162,46 @@ class Tier2Engine:
     def unavailable_reason(self) -> Optional[str]:
         return self._availability()[1]
 
-    def scan(self, text: str) -> Sequence[Span]:
+    supports_deadline = True
+
+    def scan(self, text: str, deadline: Optional[float] = None) -> Sequence[Span]:
+        """Scan `text` in windows. `deadline` (time.perf_counter() value) is checked between
+        windows: when it passes we stop and raise, so a call the pipeline already gave up on
+        releases the (single, non-thread-safe) model instead of holding it to the end."""
         from ..detection import DetectorUnavailable
         if not self.config.enabled:
             raise DetectorUnavailable(self.name)
         self._ensure_model()
         if self._state != "ready":
             raise DetectorUnavailable(self.name)
-        with self._infer_lock:
-            result = self._model.extract_entities_long(
-                text, entity_types=list(self.config.labels), threshold=self.config.threshold,
-                chunk_size=self.config.chunk_size, chunk_overlap=self.config.chunk_overlap,
-                include_confidence=True, include_spans=True)
-        spans, unlocated = parse_entities(text, (result or {}).get("entities", {}))
-        self._unlocated += unlocated
-        return spans
+        found: dict[tuple[str, str], float] = {}          # (label, entity text) -> best confidence
+        for start, window in iter_windows(text, self.config.window_chars, self.config.window_overlap):
+            if deadline is not None and time.perf_counter() > deadline:
+                raise TimeoutError("tier2 budget exhausted")
+            with self._infer_lock:
+                result = self._model.extract_entities_long(
+                    window, entity_types=list(self.config.labels), threshold=self.config.threshold,
+                    chunk_size=self.config.chunk_size, chunk_overlap=self.config.chunk_overlap,
+                    include_confidence=True, include_spans=True)
+            spans, unlocated = parse_entities(window, (result or {}).get("entities", {}))
+            self._unlocated += unlocated
+            for sp in spans:
+                key = (sp.label, window[sp.start:sp.end])
+                found[key] = max(found.get(key, 0.0), sp.score)
+        return self._spans_from(text, found)
+
+    @staticmethod
+    def _spans_from(text: str, found: dict) -> list[Span]:
+        """Every word-bounded occurrence of an entity the model found in ANY window is masked,
+        so the same name is the same sensitive value wherever it appears in a long file."""
+        out: list[Span] = []
+        seen: set[tuple[int, int, str]] = set()
+        for (label, ent), conf in found.items():
+            for s0, e0 in _occurrences(text, ent):
+                if (s0, e0, label) not in seen:
+                    seen.add((s0, e0, label))
+                    out.append(Span(s0, e0, label, conf, "tier2.gliner", None, False))
+        return out
 
     # -- lifecycle ---------------------------------------------------------
     def warmup(self) -> bool:

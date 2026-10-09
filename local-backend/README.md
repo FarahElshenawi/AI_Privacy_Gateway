@@ -378,6 +378,8 @@ policy = policy.with_overrides(IP_ADDRESS=Action.REDACT)  # redact all IPs
 | `DLP_VAULT_PERSIST` | `true` | Keep fake↔real mappings across restarts (encrypted SQLite). `false` = memory only. |
 | `DLP_VAULT_DB_PATH` | `~/.pii_gateway_vault.db` | Vault database (mode 0600). Expiry uses wall-clock time (24 h TTL). |
 | `DLP_VAULT_KEY` | key file `~/.pii_gateway_vault.key` | Fernet key. The default key file sits in the same home folder as the database, so it protects against copying the DB alone, not against someone with access to your account. Use `DLP_VAULT_KEY` from a secret store for stronger protection. |
+| `DLP_TIER1_PER_KCHAR_S` / `DLP_TIER2_PER_KCHAR_S` | `0.05` / `0.5` | Extra time budget per 1000 characters on top of `DLP_TIERn_TIMEOUT_S`, so big inputs are not judged like chat prompts. Caps: `DLP_TIERn_MAX_S` (prompts, 10 / 20) and `DLP_TIERn_FILE_MAX_S` (file batches, 60 / 300). Measure your hardware with `python benchmark_tier2.py`. |
+| `DLP_FILE_STRICT` | `true` | `/process_file` returns 422 instead of a file when any detector tier was degraded (e.g. Tier 2 down: names would go out unmasked). Set `false` to allow degraded files with the `X-DLP-Degraded` header. |
 | `CLOUD_URL` / `CLOUD_ENROLL_KEY` | unset | Enable cloud sync: enroll once with the enrollment key, then use the per-device token (saved 0600 in `~/.pii_gateway_cloud_endpoint.json`, override with `DLP_CLOUD_TOKEN_FILE`) for heartbeat, audit metadata and policy pull. The org admin key is never used here. `CLOUD_URL` must be `https://` (or localhost). |
 
 Pulled policies change live masking, except that critical secrets (cards, keys, SSN, …) can never be set to `keep`.

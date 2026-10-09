@@ -37,7 +37,7 @@ class MultimodalPipeline:
                  residual: Optional[Callable[[str], list]] = None, *,
                  strict: bool = False, max_batch_chars: int = 100_000) -> None:
         if detect is None or masker is None or residual is None:
-            from app.pipeline.engine import _masker, detect as _detect, residual_scan
+            from app.pipeline.engine import _masker, detect_file as _detect, residual_scan
             detect, masker, residual = detect or _detect, masker or _masker, residual or residual_scan
         self._segmenter = SegmentMasker(detect, masker, max_batch_chars=max_batch_chars)
         self._residual = residual

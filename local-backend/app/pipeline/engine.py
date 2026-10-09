@@ -5,6 +5,10 @@ vault, and the Demasker. Everything that can be tuned is an environment variable
 
     DLP_TIER1_TIMEOUT_S   default 2.0    Tier 1 is critical: exceeding this BLOCKS the request
     DLP_TIER2_TIMEOUT_S   default 3.0    Tier 2 exceeding this degrades (names/orgs/locations uncovered)
+    The two timeouts are BASE budgets: each call also gets DLP_TIERn_PER_KCHAR_S per 1000 characters
+    (defaults 0.05 / 0.5), capped at DLP_TIERn_MAX_S for prompts (10 / 20) and DLP_TIERn_FILE_MAX_S for
+    file batches (60 / 300), so a 100 KB file batch is not judged like a chat prompt.
+    DLP_FILE_STRICT       default true   /process_file fails (422) when any tier was degraded for the file
     DLP_TIER2_ENABLED     default true   false = run Tier 1 only (reported as degraded/uncovered)
     DLP_WARM_TIER2        default true   load the model at startup in a background thread
     DLP_STRICT            default false  true = safe_to_send is False whenever coverage is incomplete
@@ -43,6 +47,7 @@ def _env_float(name: str, default: float) -> float:
 
 TIER1_TIMEOUT_S = _env_float("DLP_TIER1_TIMEOUT_S", 2.0)
 TIER2_TIMEOUT_S = _env_float("DLP_TIER2_TIMEOUT_S", 3.0)
+FILE_STRICT_DEFAULT = _env_bool("DLP_FILE_STRICT", True)
 STRICT_DEFAULT = _env_bool("DLP_STRICT", False)
 WARM_TIER2 = _env_bool("DLP_WARM_TIER2", True)
 MAX_TEXT_CHARS = int(_env_float("DLP_MAX_TEXT_CHARS", 200_000))
@@ -90,8 +95,12 @@ if os.environ.get("GLINER_ONNX_PATH"):
     warnings.warn("GLINER_ONNX_PATH is ignored: ONNX inference is not implemented for Tier 2.")
 
 _pipeline = DetectionPipeline([
-    DetectorSpec(_tier1, critical=True, timeout_s=TIER1_TIMEOUT_S),
-    DetectorSpec(_tier2, critical=False, timeout_s=TIER2_TIMEOUT_S),
+    DetectorSpec(_tier1, critical=True, timeout_s=TIER1_TIMEOUT_S,
+                 per_kchar_s=_env_float("DLP_TIER1_PER_KCHAR_S", 0.05),
+                 max_s=_env_float("DLP_TIER1_MAX_S", 10.0), file_max_s=_env_float("DLP_TIER1_FILE_MAX_S", 60.0)),
+    DetectorSpec(_tier2, critical=False, timeout_s=TIER2_TIMEOUT_S,
+                 per_kchar_s=_env_float("DLP_TIER2_PER_KCHAR_S", 0.5),
+                 max_s=_env_float("DLP_TIER2_MAX_S", 20.0), file_max_s=_env_float("DLP_TIER2_FILE_MAX_S", 300.0)),
 ])
 _masker = OffsetMasker(_vault, _surrogate)
 _demasker = Demasker(_vault)
@@ -99,6 +108,11 @@ _demasker = Demasker(_vault)
 
 def detect(text: str) -> DetectionResult:
     return _pipeline.run(text)
+
+
+def detect_file(text: str) -> DetectionResult:
+    """Same detectors, with the larger file-batch time budget."""
+    return _pipeline.run(text, mode="file")
 
 
 def warm_tier2() -> None:
