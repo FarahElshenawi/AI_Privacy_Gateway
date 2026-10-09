@@ -19,7 +19,7 @@ const AFTER = {
   pre: "Send the contract to ",
   highlight: "Emma Collins",
   mid: ", card ",
-  highlight2: "4916 3307 5518 0294",
+  highlight2: "[REDACTED:CREDIT_CARD]",
   post: ".",
 };
 

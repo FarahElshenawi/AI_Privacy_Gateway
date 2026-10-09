@@ -6,7 +6,6 @@ import { Difference } from "@/components/landing/Difference";
 import { PIITypes } from "@/components/landing/PIITypes";
 import { FileFormats } from "@/components/landing/FileFormats";
 import { Architecture } from "@/components/landing/Architecture";
-import { Testimonials } from "@/components/landing/Testimonials";
 import { FAQ } from "@/components/landing/FAQ";
 import { CTA } from "@/components/landing/CTA";
 import { Footer } from "@/components/landing/Footer";
@@ -23,7 +22,6 @@ export default function Page() {
         <PIITypes />
         <FileFormats />
         <Architecture />
-        <Testimonials />
         <FAQ />
         <CTA />
       </div>

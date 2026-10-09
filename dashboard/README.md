@@ -113,7 +113,7 @@ totals).
 | Field | Type | Source | Example | What it means |
 |-------|------|--------|---------|---------------|
 | `id` | int | cloud backend | `1` | Stable policy ID |
-| `org_id` | int | cloud backend | `1` | Which org owns this policy |
+| `org_id` | int | cloud backend | from the API key | Which org owns this policy (set by the server, never by the client) |
 | `entity_type` | string | admin-set | `"PERSON"` | The type of entity this policy applies to |
 | `action` | string | admin-set (toggle) | `"faker"` | What to do: `faker` (replace with stand-in), `redact` (replace with `[[REDACTED]]`), `keep` (leave alone) |
 | `is_default` | bool | cloud backend | `true` | True if seeded on first boot — locked from delete |
@@ -132,7 +132,7 @@ cloud backend's database, or any network request the dashboard makes.
 | AI response text | Never sent to the cloud |
 | Real PII values (names, emails, cards, addresses, etc.) | Stay on the user's device, in the local backend's vault |
 | Masked surrogate values | Stay on the user's device |
-| The (real → fake) mapping vault | Per-conversation, on-device only, TTL 30 minutes, never persisted to disk by default |
+| The (real → fake) mapping vault | On-device only, per conversation. Persisted by default in an encrypted SQLite file (24 h TTL, owner-only file permissions); set `DLP_VAULT_PERSIST=false` for memory-only. Never sent to the cloud. |
 | File contents (PDF text, Word paragraphs, Excel cells) | Processed locally, only the metadata envelope is sent |
 | User identity (which employee) | The dashboard doesn't show employee names — only `event_type`, `entity_types`, `latency_ms` |
 | Browser history / URLs visited | The dashboard has no awareness of which AI tool was used |
@@ -232,9 +232,7 @@ Displays (read-only):
   2. Org card — name (Acme Inc.), org ID (1), endpoints enrolled (1)
   3. Cloud backend connection — URL, health status, how to change URL
   4. Per-org API key — password input, stored for the tab session only
-  5. Signed policy toggle — visual only, no API call yet (the cloud backend
-     doesn't enforce signing — add middleware when needed)
-  6. Exported policy snapshot — the live JSON the cloud backend would serve
+  5. Exported policy snapshot — the live JSON the cloud backend would serve
      to a local backend pulling from /api/policies/export
 ```
 

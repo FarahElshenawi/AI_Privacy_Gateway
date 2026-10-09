@@ -15,7 +15,7 @@ const FAQS = [
   { q: "Which AI tools are supported?", a: "ChatGPT and Gemini are available today. Others are in private preview." },
   { q: "Can it handle file uploads?", a: "Yes. PDF, Word, Excel, and plain text are preserved with sensitive values swapped." },
   { q: "What does the admin see?", a: "Counts and categories of data masked. Never the prompt itself." },
-  { q: "How long does deployment take?", a: "Most teams are live within a day." },
+  { q: "How long does deployment take?", a: "Each device runs the local backend and the browser extension. The cloud control plane for policies and audit is optional." },
 ];
 
 export function FAQ() {

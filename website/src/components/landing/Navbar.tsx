@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { ShieldCheck, Menu, X } from "lucide-react";
+import { CTA_HREF, CTA_LABEL } from "@/lib/site";
 
 const NAV_LINKS = [
   { label: "How it works", href: "#how-it-works" },
   { label: "Coverage", href: "#coverage" },
   { label: "Architecture", href: "#architecture" },
-  { label: "Customers", href: "#customers" },
 ];
 
 export function Navbar() {
@@ -61,8 +61,8 @@ export function Navbar() {
 
           {/* Plain text link — keeps the rule "one green button per screen" (the hero's button) */}
           <div className="hidden lg:flex items-center">
-            <a href="#demo" className="text-link text-[14px]">
-              <span>Book a demo</span>
+            <a href={CTA_HREF} className="text-link text-[14px]">
+              <span>{CTA_LABEL}</span>
             </a>
           </div>
 
@@ -91,11 +91,11 @@ export function Navbar() {
               </a>
             ))}
             <a
-              href="#demo"
+              href={CTA_HREF}
               onClick={() => setOpen(false)}
               className="btn-lime mt-2 px-5 py-3 text-center text-[15px]"
             >
-              Book a demo
+              {CTA_LABEL}
             </a>
           </div>
         </div>
