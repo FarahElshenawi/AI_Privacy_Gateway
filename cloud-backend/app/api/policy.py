@@ -15,8 +15,8 @@ from typing import Annotated, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
-from app.auth import require_org
-from app.db import Organization, Policy, get_db
+from app.auth import Caller, require_org, require_org_or_endpoint
+from app.db import Organization, Policy, get_db, log_admin_action
 
 router = APIRouter(prefix="/api/policies", tags=["policies"])
 
@@ -73,14 +73,15 @@ def list_policies(org: Organization = Depends(require_org), db=Depends(get_db)):
 
 # NOTE: /export must be declared BEFORE /{entity_type}, or "export" is captured as an entity type.
 @router.get("/export")
-def export_policies(org: Organization = Depends(require_org), db=Depends(get_db)):
-    """All policies as a routing table: {"PERSON": "faker", "CREDIT_CARD": "redact", ...}."""
-    return _export(db, org)
+def export_policies(caller: Caller = Depends(require_org_or_endpoint), db=Depends(get_db)):
+    """All policies as a routing table: {"PERSON": "faker", "CREDIT_CARD": "redact", ...}.
+    Devices read this with their endpoint token (the only policy route they can use)."""
+    return _export(db, caller.org)
 
 
 @router.get("/export/all", include_in_schema=False)
-def export_policies_legacy(org: Organization = Depends(require_org), db=Depends(get_db)):
-    return _export(db, org)
+def export_policies_legacy(caller: Caller = Depends(require_org_or_endpoint), db=Depends(get_db)):
+    return _export(db, caller.org)
 
 
 @router.get("/{entity_type}", response_model=PolicyResponse)
@@ -110,6 +111,7 @@ def create_policy(body: PolicyCreate, org: Organization = Depends(require_org), 
         raise HTTPException(status_code=409, detail=f"Policy for {body.entity_type} already exists")
     policy = Policy(org_id=org.id, entity_type=body.entity_type, action=body.action)
     db.add(policy)
+    log_admin_action(db, org, "policy.create", f"{body.entity_type}={body.action}")
     db.commit()
     db.refresh(policy)
     return policy
@@ -140,6 +142,7 @@ def update_policy(policy_id: int, body: PolicyUpdate,
         policy.action = body.action
         policy.version += 1
 
+    log_admin_action(db, org, "policy.update", f"policy:{policy.id} {policy.entity_type}={policy.action}")
     db.commit()
     db.refresh(policy)
     return policy
@@ -152,4 +155,5 @@ def delete_policy(policy_id: int, org: Organization = Depends(require_org), db=D
     if policy.is_default:
         raise HTTPException(status_code=400, detail="Cannot delete default policies")
     db.delete(policy)
+    log_admin_action(db, org, "policy.delete", f"policy:{policy_id} {policy.entity_type}")
     db.commit()

@@ -369,7 +369,7 @@ policy = policy.with_overrides(IP_ADDRESS=Action.REDACT)  # redact all IPs
 | `DLP_VAULT_PERSIST` | `true` | Keep fake↔real mappings across restarts (encrypted SQLite). `false` = memory only. |
 | `DLP_VAULT_DB_PATH` | `~/.pii_gateway_vault.db` | Vault database (mode 0600). Expiry uses wall-clock time (24 h TTL). |
 | `DLP_VAULT_KEY` | key file `~/.pii_gateway_vault.key` | Fernet key. The default key file sits in the same home folder as the database, so it protects against copying the DB alone, not against someone with access to your account. Use `DLP_VAULT_KEY` from a secret store for stronger protection. |
-| `CLOUD_URL` / `CLOUD_API_KEY` | unset | Enable cloud sync: enroll + heartbeat, push audit metadata, pull policies. `CLOUD_URL` must be `https://` (or localhost). |
+| `CLOUD_URL` / `CLOUD_ENROLL_KEY` | unset | Enable cloud sync: enroll once with the enrollment key, then use the per-device token (saved 0600 in `~/.pii_gateway_cloud_endpoint.json`, override with `DLP_CLOUD_TOKEN_FILE`) for heartbeat, audit metadata and policy pull. The org admin key is never used here. `CLOUD_URL` must be `https://` (or localhost). |
 
 Pulled policies change live masking, except that critical secrets (cards, keys, SSN, …) can never be set to `keep`.
 Audit events that can't be delivered are retried (bounded buffer), and demask calls are audited as `demask` events.

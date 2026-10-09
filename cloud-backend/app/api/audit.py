@@ -1,6 +1,6 @@
 """Audit ingestion — metadata only, never prompt content. Authenticated and org-scoped.
 
-Endpoints (all require an API key; the organization is the key's organization):
+Credentials: POST accepts an endpoint token (devices) or the admin key; everything else is admin-key only.
   POST   /api/audit            — submit an audit event
   GET    /api/audit            — list events (with filters)
   GET    /api/audit/stats      — aggregated statistics for dashboard
@@ -19,8 +19,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_serializer, field_validator
 from sqlalchemy import func
 
-from app.auth import require_org
-from app.db import AuditEvent, Endpoint, Organization, get_db
+from app.auth import Caller, require_org, require_org_or_endpoint
+from app.db import AuditEvent, Endpoint, Organization, get_db, log_admin_action
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -61,12 +61,18 @@ class AuditEventResponse(BaseModel):
 
 
 @router.post("", response_model=AuditEventResponse, status_code=201)
-def submit_audit(body: AuditEventCreate, org: Organization = Depends(require_org), db=Depends(get_db)):
+def submit_audit(body: AuditEventCreate, caller: Caller = Depends(require_org_or_endpoint), db=Depends(get_db)):
     """Submit an audit event from a local backend.
 
     Accepts METADATA ONLY: entity types and counts, latency, event type.
     It NEVER accepts prompt content, masked or unmasked.
     """
+    org = caller.org
+    if caller.endpoint is not None:
+        # A device can only report as itself, whatever the body says.
+        if body.endpoint_id not in (None, caller.endpoint.id):
+            raise HTTPException(status_code=403, detail="endpoint_id does not match this endpoint token")
+        body.endpoint_id = caller.endpoint.id
     if body.endpoint_id is not None:
         owned = db.query(Endpoint).filter(Endpoint.id == body.endpoint_id, Endpoint.org_id == org.id).first()
         if not owned:
@@ -162,4 +168,5 @@ def delete_audit(event_id: int, org: Organization = Depends(require_org), db=Dep
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     db.delete(event)
+    log_admin_action(db, org, "audit.delete", f"event:{event_id}")
     db.commit()

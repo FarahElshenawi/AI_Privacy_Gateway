@@ -2,18 +2,19 @@
 
 Endpoints are local-backend installations registered to an organization. Each
 endpoint has:
-  - an enrollment token (issued once at enrollment, used for nothing else)
+  - its own endpoint token (issued once at enrollment; only its hash is stored)
   - a hostname (machine name, for fleet display)
   - a version (local-backend version, for compatibility checks)
   - a last_seen timestamp (updated on every heartbeat)
 
-The local backend enrolls on first startup (after the user pastes the org's API key),
-then sends a heartbeat every N seconds. The dashboard uses the endpoints table to
+The local backend enrolls on first startup with the ENROLLMENT key (X-Enroll-Key: it can do
+nothing but register devices), then uses its own endpoint token (X-Endpoint-Token) for
+heartbeats, audit writes and policy reads. The admin key never has to leave the admin's hands.
+Heartbeat every N seconds. The dashboard uses the endpoints table to
 show "X devices online, Y devices stale, Z devices running old version".
 
-All routes require the org's API key (via require_org); the endpoint's own
-enrollment_token is separate and used only for heartbeats (so a leaked heartbeat
-token can't read policies or audit events).
+Credentials: enroll = enrollment key; heartbeat = endpoint token; list/deactivate = admin key.
+A leaked endpoint token or enrollment key can't read audit events, edit policies or list devices.
 """
 from __future__ import annotations
 
@@ -23,9 +24,10 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from app.auth import require_org
-from app.db import Endpoint, Organization, get_db
 import secrets
+
+from app.auth import require_endpoint, require_enroll_org, require_org
+from app.db import Endpoint, Organization, get_db, hash_api_key, log_admin_action
 
 router = APIRouter(prefix="/api/endpoints", tags=["endpoints"])
 
@@ -36,9 +38,8 @@ Version = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._+~-]{1,32}$")]
 class EnrollRequest(BaseModel):
     """A local backend enrolls itself on first startup.
 
-    The caller already has the org API key (sent as X-API-Key). The enrollment
-    creates an Endpoint row and returns an enrollment_token that the local backend
-    stores for future heartbeats.
+    The caller holds the org's ENROLLMENT key (X-Enroll-Key). Enrollment creates an Endpoint
+    row and returns that device's own endpoint_token (shown once, only its hash is stored).
     """
     model_config = ConfigDict(extra="forbid")
     hostname: Hostname
@@ -47,18 +48,14 @@ class EnrollRequest(BaseModel):
 
 class EnrollResponse(BaseModel):
     endpoint_id: int
-    enrollment_token: str
+    endpoint_token: str
     hostname: str
 
 
 class HeartbeatRequest(BaseModel):
-    """A local backend sends a heartbeat every N seconds.
-
-    The enrollment_token identifies which endpoint this is. The version field
-    lets the dashboard track which devices are running old local-backend versions.
-    """
+    """Sent by a local backend every N seconds, authenticated by X-Endpoint-Token.
+    The version lets the dashboard track which devices run old local-backend versions."""
     model_config = ConfigDict(extra="forbid")
-    enrollment_token: Annotated[str, StringConstraints(min_length=32, max_length=128)]
     version: Optional[Version] = None
 
 
@@ -88,20 +85,14 @@ STALE_AFTER_S = 300  # 5 minutes — heartbeats expected every 60s
 
 
 @router.post("/enroll", response_model=EnrollResponse, status_code=201)
-def enroll(body: EnrollRequest, org: Organization = Depends(require_org),
+def enroll(body: EnrollRequest, org: Organization = Depends(require_enroll_org),
            db=Depends(get_db)):
-    """Register a new local backend installation.
-
-    Called once on first startup. The local backend stores the returned
-    enrollment_token locally and uses it for heartbeats. If the enrollment_token
-    is lost, the local backend can re-enroll (creating a new endpoint row);
-    the dashboard can clean up stale endpoints.
-    """
+    """Register a new local backend installation (called once on first startup)."""
     token = secrets.token_urlsafe(32)
     endpoint = Endpoint(
         org_id=org.id,
         hostname=body.hostname,
-        enrollment_token=token,   # NOTE: in production, store a hash like api_key
+        token_hash=hash_api_key(token),     # the token itself is returned once and never stored
         version=body.version,
         last_seen=datetime.utcnow(),
         is_active=True,
@@ -109,29 +100,13 @@ def enroll(body: EnrollRequest, org: Organization = Depends(require_org),
     db.add(endpoint)
     db.commit()
     db.refresh(endpoint)
-    return EnrollResponse(
-        endpoint_id=endpoint.id,
-        enrollment_token=token,
-        hostname=endpoint.hostname or "",
-    )
+    return EnrollResponse(endpoint_id=endpoint.id, endpoint_token=token, hostname=endpoint.hostname or "")
 
 
 @router.post("/heartbeat", response_model=HeartbeatResponse)
-def heartbeat(body: HeartbeatRequest, org: Organization = Depends(require_org),
+def heartbeat(body: HeartbeatRequest, endpoint: Endpoint = Depends(require_endpoint),
               db=Depends(get_db)):
-    """Update last_seen for an endpoint.
-
-    Called by the local backend every 60 seconds. Returns `stale_after_seconds`
-    so the local backend knows when to re-enroll if heartbeats are failing.
-    """
-    endpoint = db.query(Endpoint).filter(
-        Endpoint.enrollment_token == body.enrollment_token,
-        Endpoint.org_id == org.id,
-        Endpoint.is_active.is_(True),
-    ).first()
-    if endpoint is None:
-        raise HTTPException(status_code=404, detail="Unknown or inactive endpoint")
-    endpoint.last_seen = datetime.utcnow()
+    """Update last_seen (require_endpoint already did) and the reported version."""
     if body.version is not None:
         endpoint.version = body.version
     db.commit()
@@ -168,4 +143,5 @@ def deactivate_endpoint(endpoint_id: int, org: Organization = Depends(require_or
     if endpoint is None:
         raise HTTPException(status_code=404, detail="Endpoint not found")
     endpoint.is_active = False
+    log_admin_action(db, org, "endpoint.deactivate", f"endpoint:{endpoint_id}")
     db.commit()

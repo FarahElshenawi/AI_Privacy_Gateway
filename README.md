@@ -452,7 +452,7 @@ AI_Privacy_Gateway/
 
 - **Response demasking is display-only.** The extension restores real values in the ChatGPT/Gemini page (via `/api/mapping`) as replies stream in; values that are not stored for restoring (e.g. `[REDACTED:CREDIT_CARD]`) stay redacted, and the restored text lives in the page's DOM.
 - **No OCR.** Scanned PDFs and images are rejected (fail-closed), not silently passed through.
-- **Cloud backend not connected.** The control plane is authenticated (per-org API key) and tested, but the local backend doesn't pull policies or push audit events yet.
+- **Cloud sync is opt-in.** With `CLOUD_URL` and `CLOUD_ENROLL_KEY` set, the local backend enrolls, heartbeats, pushes audit metadata and pulls policies using a per-device token; the admin key stays with the dashboard.
 - **ChatGPT and Gemini only.** Other sites (Claude, etc.) are future work.
 - **ONNX not working.** GLiNER2 uses PyTorch mode. ONNX export fails (dynamic control flow). PyTorch is fast enough for the demo.
 - **SpanMarker dropped.** PERSON kill test inconclusive (GLiNER2 at 0.953 F1, CI touches 0.97 but can't confirm). Dropped for simplicity.
