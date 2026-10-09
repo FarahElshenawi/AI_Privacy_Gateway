@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.detect import router as detect_router
 from app.api.mask import router as mask_router
+from app.security import origin_check
 from app.api.demask import router as demask_router
 from app.api.mapping import router as mapping_router
 from app.api.process_file import router as file_router
@@ -50,23 +51,17 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS — ONLY browser extensions. Web pages (chatgpt.com, any site) must never be able to read
+# CORS — ONLY our browser extension (pinned ID). Web pages (chatgpt.com, any site) must never be able to read
 # responses from this backend: that would let page script fetch /token and then call /api/demask
 # to turn surrogate names back into real ones. The extension's service worker has host
 # permission for this origin and is exempt from CORS anyway; the regex just also covers
 # extension pages. `check_origin` independently rejects any non-extension Origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
-    allow_origin_regex=r"^chrome-extension://[a-p]{32}$",
+    allow_origins=sorted(origin_check.allowed_extension_origins()),   # pinned extension ID(s) only
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Wire routers

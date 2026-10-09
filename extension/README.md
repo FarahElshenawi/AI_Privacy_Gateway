@@ -97,3 +97,11 @@ src/content/demask.js              # ChatGPT + Gemini: show real values in repli
 src/popup/                         # stats, attach status, diagnostics
 tests/                             # body.test.js, sw.test.js, content.test.js, demask.test.js
 ```
+
+## Pinned extension ID
+
+`manifest.json` carries a `key`, so the extension ID is always `efcejekkbkbbknfpjgbpkojgnoomggbi`
+(unpacked, force-installed, any machine). The local backend only accepts requests whose Origin is
+that ID (`origin_check.PINNED_EXTENSION_ID`; a test checks the two stay in sync). If you publish
+under a different ID (e.g. the Chrome Web Store), set `DLP_EXTENSION_IDS=<id>[,<id>]` on the backend.
+The matching private key is only needed to sign packages; keep it out of the repository.

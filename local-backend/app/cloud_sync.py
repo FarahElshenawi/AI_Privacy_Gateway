@@ -312,42 +312,10 @@ def _audit_push_loop(stop_event: threading.Event) -> None:
         stop_event.wait(AUDIT_FLUSH_INTERVAL_S)
 
 
+from app.policy_runtime import apply_policies as apply_cloud_policies  # noqa: E402  (shared with /api/policies/apply)
+
+
 # --- Policy pull ------------------------------------------------------------
-
-def apply_cloud_policies(policies: dict) -> tuple[int, list[str]]:
-    """Apply a {LABEL: "faker"|"redact"|"keep"} map to the LIVE masking path.
-
-    Masking reads two tables: the merge engine's label->action Policy (decides what happens to a
-    span) and the active routing table (storage/audit metadata). Both are updated, atomically
-    per table, starting from the built-in defaults so labels removed in the cloud revert.
-
-    Safety: unknown actions are ignored, and the local guard in configure_policy_override
-    refuses to downgrade critical secrets (cards, keys, SSN, ...) to KEEP. Rejected labels are
-    returned so they can be logged. Returns (applied_count, rejected_labels).
-    """
-    from dlp_core import policy as P
-    from dlp_core.policy import Action, Policy, PolicyConfigError
-
-    actions = {"faker": Action.FAKER, "redact": Action.REDACT, "keep": Action.KEEP}
-    table = dict(P.DEFAULT_ACTIONS)
-    rejected: list[str] = []
-    accepted: dict[str, Action] = {}
-    P.reset_policy_to_defaults()
-    for label, action_str in policies.items():
-        act = actions.get(str(action_str).lower())
-        canon = P.normalize_label(str(label))
-        if act is None or not canon:
-            rejected.append(str(label)); continue
-        try:
-            P.configure_policy_override(canon, act)
-        except PolicyConfigError:
-            rejected.append(canon); continue
-        accepted[canon] = act
-    table.update(accepted)
-    from app.pipeline import engine
-    engine._pipeline.set_policy(Policy(table))
-    return len(accepted), rejected
-
 
 def _pull_and_apply_policies() -> None:
     """GET /api/policies/export and apply it to the running masking pipeline."""

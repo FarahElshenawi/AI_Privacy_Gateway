@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "Doppel — AI Privacy Gateway",
   "version": "2.4.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoRBQ2vA1N9J1vkRrOdj6IbfJSelCO7SOuqfwj0JLD6i3j0oK879RrG3mVtqSo8DfaocncKU7+IzWzAO2XByqqCMWvucTguJkCUzrktUJYjwJF+19cpcbEIdLoJpwqhFpN26u9lwE/Si0JFC7V7e52Y7E0iHQ2cB41YrtZmjNUjUp7dB+RTig33F8er9UyWtcvQyD5QsW1otWzihY4fNY99Swh6i97dDO1eqqROYlq1pBoAXOEdzaRB/2IBAcRJZ18uPN+IG8jqiGaVKyFFWxIORjiMh2Wt0tkjkBZB3ixoe1oY4wDYnddB7gnYtJM/8m1H7G9eg42q7cZU5N6fPLCwIDAQAB",
   "description": "Masks sensitive PII before it reaches ChatGPT and Gemini. Uses chrome.debugger + CDP for network-layer interception.",
   "permissions": [
     "activeTab",
