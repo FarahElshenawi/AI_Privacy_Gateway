@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -24,6 +26,9 @@ from dlp_core.segments import DetectionBlocked, SegmentMasker
 
 from app.multimodal.file_type_detector import detect_file_type
 from app.multimodal.handlers import get_handler, zip_raw_scan
+
+
+_EXT = {"word": ".docx", "excel": ".xlsx", "pdf": ".pdf"}
 
 
 class MultimodalPipeline:
@@ -50,6 +55,18 @@ class MultimodalPipeline:
             return self._fail(ftype, "unknown_file_type")
         if ftype == "image":
             return self._fail(ftype, "image_files_need_ocr_not_supported", blockers=["image_file"])
+
+        # The type comes from the content, but the libraries insist on the right extension: if the
+        # name lies (an xlsx called report.docx), work on a correctly named copy.
+        want = _EXT.get(ftype)
+        if want and src.suffix.lower() != want:
+            with tempfile.TemporaryDirectory() as td:
+                res = self.process(shutil.copyfile(src, Path(td) / f"in{want}"),
+                                   Path(td) / f"out{want}", conversation_id)
+                if res["success"]:
+                    shutil.move(res["output_path"], out)
+                    res["output_path"] = str(out)
+                return res
 
         handler = get_handler(ftype)
         try:

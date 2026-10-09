@@ -1,65 +1,71 @@
-"""File type detector — magic bytes + extension.
+"""File type detector — decided by CONTENT (magic bytes / package layout), not by the name.
 
 Detects: text, pdf, word (docx), excel (xlsx), image, unknown.
+
+A file called report.docx that is really an xlsx is processed as Excel; a zip that is neither a
+Word nor an Excel package, a legacy OLE .doc/.xls, or a file whose extension claims a binary
+format its bytes don't have, is "unknown" (blocked) rather than guessed at.
 """
+import zipfile
 from pathlib import Path
+
+_TEXT_EXTS = {".txt", ".md", ".csv", ".log", ".py", ".js", ".json", ".tsv"}
+_BINARY_EXTS = {".pdf", ".docx", ".xlsx"}
+_OLE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
+def _zip_kind(file_path: str) -> str:
+    try:
+        with zipfile.ZipFile(file_path) as z:
+            names = set(z.namelist())
+    except (zipfile.BadZipFile, OSError):
+        return "unknown"
+    if "word/document.xml" in names:
+        return "word"
+    if "xl/workbook.xml" in names:
+        return "excel"
+    return "unknown"
 
 
 def detect_file_type(file_path: str) -> str:
-    """Detect file type from magic bytes + extension.
-
-    Returns: 'text', 'pdf', 'word', 'excel', 'image', 'unknown'
-    """
-    path = Path(file_path)
-    ext = path.suffix.lower()
-
-    # Read magic bytes
+    """Returns: 'text', 'pdf', 'word', 'excel', 'image', 'unknown'."""
+    ext = Path(file_path).suffix.lower()
     try:
         with open(file_path, "rb") as f:
             header = f.read(8)
     except OSError:
         return "unknown"
 
-    # PDF magic: %PDF
     if header.startswith(b"%PDF"):
         return "pdf"
-
-    # ZIP-based formats (docx, xlsx): PK\x03\x04
-    if header.startswith(b"PK\x03\x04"):
-        if ext == ".docx":
-            return "word"
-        if ext == ".xlsx":
-            return "excel"
-        # Could be other zip-based format — fall through to extension check
-
-    # Image formats
-    if header.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image"
-    if header.startswith(b"\xff\xd8\xff"):
-        return "image"  # JPEG
-    if header.startswith(b"GIF8"):
+    if header.startswith(b"PK\x03\x04") or header.startswith(b"PK\x05\x06"):
+        return _zip_kind(file_path)
+    if header.startswith(_OLE):
+        return "unknown"
+    if (header.startswith(b"\x89PNG\r\n\x1a\n") or header.startswith(b"\xff\xd8\xff")
+            or header.startswith((b"GIF8", b"BM")) or (header.startswith(b"RIFF") and ext == ".webp")
+            or header[:4] in (b"II*\x00", b"MM\x00*")):
         return "image"
 
-    # Extension-based fallback
-    text_exts = {".txt", ".md", ".csv", ".log", ".py", ".js", ".json", ".tsv"}
-    if ext in text_exts:
-        return "text"
-    if ext == ".docx":
-        return "word"
-    if ext == ".xlsx":
-        return "excel"
-    if ext == ".pdf":
-        return "pdf"
+    # Not a recognised binary container. A name that claims one is lying: don't guess.
+    if ext in _BINARY_EXTS:
+        return "unknown"
 
-    # Last resort: try to decode as UTF-8 text
+    # Text: UTF-8/UTF-16/32 (BOM) or legacy single-byte; reject anything with NUL bytes (binary).
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            sample = f.read(1024)
-        # Reject if the sample contains null bytes (binary file)
-        if "\x00" in sample:
-            return "unknown"
+        with open(file_path, "rb") as f:
+            sample = f.read(4096)
+    except OSError:
+        return "unknown"
+    if sample.startswith((b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff")):
         return "text"
-    except UnicodeDecodeError:
-        pass
-
-    return "unknown"
+    if b"\x00" in sample:
+        return "unknown"
+    if ext in _TEXT_EXTS:
+        return "text"
+    try:
+        sample.decode("utf-8")
+        return "text"
+    except UnicodeDecodeError as exc:
+        # a multibyte char cut at the 4 KB boundary is still text
+        return "text" if exc.start >= len(sample) - 3 else "unknown"

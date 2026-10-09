@@ -48,6 +48,27 @@ def _inspect_package(path: str) -> tuple[list[str], list[str], bool]:
     return sorted(set(blockers)), warnings, media
 
 
+def _table_headers(doc) -> dict:
+    """paragraph element -> "Header: " for paragraphs in a table's body rows, when the first row has
+    two or more non-empty cells. Read-only scan context so bare cell values hit cue-based patterns."""
+    from docx.oxml.ns import qn
+    out: dict = {}
+    for tbl in doc.element.body.iter(qn("w:tbl")):          # document order: outer first, inner overrides
+        rows = tbl.findall(qn("w:tr"))
+        if len(rows) < 2:
+            continue
+        head = ["".join(t.text or "" for t in tc.iter(qn("w:t"))).strip()[:80]
+                for tc in rows[0].findall(qn("w:tc"))]
+        if sum(1 for h in head if h) < 2:
+            continue
+        for tr in rows[1:]:
+            for ci, tc in enumerate(tr.findall(qn("w:tc"))):
+                if ci < len(head) and head[ci]:
+                    for p in tc.iter(qn("w:p")):
+                        out[p] = f"{head[ci]}: "
+    return out
+
+
 class WordHandler:
     file_type = "word"
 
@@ -57,7 +78,8 @@ class WordHandler:
             doc = Document(path)
         except Exception as exc:  # noqa: BLE001
             raise ValueError("cannot_open_docx") from exc
-        segs = [Segment(("p", i), "".join(r.text for r in paragraph_runs(p)))
+        ctx = _table_headers(doc)
+        segs = [Segment(("p", i), "".join(r.text for r in paragraph_runs(p)), ctx.get(p._p, ""))
                 for i, p in enumerate(iter_paragraphs(doc))]
         for rid, rel in doc.part.rels.items():
             if rel.is_external and rel.reltype.endswith("/hyperlink"):

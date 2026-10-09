@@ -39,6 +39,30 @@ def _package(path: str) -> tuple[list[str], list[str], bool]:
     return blockers, warnings, media
 
 
+def _num_text(v) -> str | None:
+    """Numeric cell -> the text a person would read (so a card/phone stored as a number is scanned)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    if isinstance(v, float):
+        return str(int(v)) if v.is_integer() and abs(v) < 1e18 else repr(v)
+    return str(v)
+
+
+def _headers(ws) -> dict[int, str]:
+    """column index -> header text, when the first non-empty row looks like a header row
+    (two or more cells, all text). Used only as read-only scan context ("Phone: <value>")."""
+    first = None
+    for row in ws.iter_rows(min_row=ws.min_row, max_row=min(ws.max_row, ws.min_row + 20)):
+        cells = [c for c in row if c.value not in (None, "")]
+        if cells:
+            first = cells
+            break
+    if not first or len(first) < 2 or not all(isinstance(c.value, str) for c in first):
+        return {}
+    hdr_row = first[0].row
+    return {c.column: c.value.strip()[:80] for c in first if c.value.strip()} | {-1: hdr_row}
+
+
 class ExcelHandler:
     file_type = "excel"
 
@@ -51,10 +75,17 @@ class ExcelHandler:
         segs: list[Segment] = []
         for si, ws in enumerate(wb.worksheets):
             segs.append(Segment(("title", si), ws.title))
+            hdr = _headers(ws)
+            hdr_row = hdr.pop(-1, None)
             for cell in list(ws._cells.values()):
                 v = cell.value
+                ctx = f"{hdr[cell.column]}: " if hdr.get(cell.column) and cell.row != hdr_row else ""
                 if isinstance(v, str) and v:
-                    segs.append(Segment(("c", si, cell.coordinate), v))
+                    segs.append(Segment(("c", si, cell.coordinate), v, ctx))
+                else:
+                    nt = _num_text(v)
+                    if nt is not None:
+                        segs.append(Segment(("c", si, cell.coordinate), nt, ctx))
                 if cell.comment is not None and cell.comment.text:
                     segs.append(Segment(("cm", si, cell.coordinate), cell.comment.text))
                 hl = cell.hyperlink
