@@ -35,8 +35,12 @@ class DetectionBlocked(Exception):
 
 @dataclass(frozen=True, slots=True)
 class Segment:
+    """`context` is read-only scan context (e.g. a table's column header: "Phone: "). It is shown to
+    the detectors in front of `text` so cue-based patterns fire on bare cell values, but it is never
+    edited, returned or written back: spans are clipped to `text`."""
     key: Hashable
     text: str
+    context: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,12 +131,14 @@ class SegmentMasker:
 
     def mask_segments(self, segments: Sequence[Segment], conversation_id: str) -> SegmentMaskResult:
         # flatten into pieces: (segment index, offset inside segment, text)
-        pieces: list[tuple[int, int, str]] = []
+        pieces: list[tuple[int, int, str, int]] = []      # (segment, offset in segment, text, context length)
         for i, seg in enumerate(segments):
             if not seg.text.strip():
                 continue
+            ctx = seg.context[:200]
             for off, txt in _split_long(seg.text, self._max):
-                pieces.append((i, off, txt))
+                c = ctx if off == 0 else ""
+                pieces.append((i, off, c + txt, len(c)))
 
         edits: dict[Hashable, list[Edit]] = {}
         degraded = False
@@ -143,7 +149,7 @@ class SegmentMasker:
         for batch in self._batches(pieces):
             joined = "\n".join(p[2] for p in batch)
             starts, pos = [], 0
-            for _, _, txt in batch:
+            for _, _, txt, _c in batch:
                 starts.append(pos)
                 pos += len(txt) + 1
             result = self._detect(joined)
@@ -161,18 +167,19 @@ class SegmentMasker:
                 while k < len(batch) and starts[k] < ms.end:
                     p_start, p_len = starts[k], len(batch[k][2])
                     s, e = max(ms.start, p_start) - p_start, min(ms.end, p_start + p_len) - p_start
+                    s = max(s, batch[k][3])                 # never edit the read-only context
                     if e > s:
                         per_piece[k].append(replace(ms, start=s, end=e))
                     k += 1
 
-            for (seg_i, off, txt), spans in zip(batch, per_piece):
+            for (seg_i, off, txt, clen), spans in zip(batch, per_piece):
                 if not spans:
                     continue
                 res = self._masker.mask(txt, spans, conversation_id)
                 key = segments[seg_i].key
                 for info in res.spans:
                     edits.setdefault(key, []).append(Edit(
-                        info.start + off, info.end + off,
+                        info.start - clen + off, info.end - clen + off,
                         res.masked_text[info.masked_start:info.masked_end], info.label))
                     total += 1
 
@@ -184,7 +191,7 @@ class SegmentMasker:
             out.masked[seg.key] = apply_edits(seg.text, es) if es else seg.text
         return out
 
-    def _batches(self, pieces: list[tuple[int, int, str]]):
+    def _batches(self, pieces: list[tuple[int, int, str, int]]):
         batch, size = [], 0
         for p in pieces:
             if batch and size + len(p[2]) + 1 > self._max:

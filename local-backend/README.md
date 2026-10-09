@@ -296,6 +296,15 @@ Extracts text from files, runs detection + masking, reconstructs in place.
 Unprocessable files (images, scans, encrypted) are **rejected** — never
 silently passed through.
 
+- **File type comes from the bytes, not the name.** A zip is Word if it holds `word/document.xml`,
+  Excel if it holds `xl/workbook.xml`; any other zip, legacy `.doc`/`.xls`, or a `.pdf`/`.docx`/`.xlsx`
+  name without the matching bytes is rejected as unknown.
+- **Tables keep their column header as scan context.** Excel columns, Word table columns and CSV/TSV
+  columns are scanned as `Header: value`, so a bare cell under "SSN" or "Phone" is recognised. The header
+  text is read-only context and is never edited or written back.
+- **Numeric Excel cells are scanned** (a card number stored as a number is masked; the cell becomes text).
+- **CSV/TSV** are masked cell by cell with delimiters, quotes and line endings preserved exactly.
+
 ## Tests
 
 ```bash
