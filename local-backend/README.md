@@ -82,8 +82,8 @@ curl http://127.0.0.1:8765/health
 ### Security model
 
 - Binds to `127.0.0.1`; the `Host` header must be a loopback name (blocks DNS rebinding).
-- CORS allows only `chrome-extension://<32-char id>` origins; other `Origin`s are rejected.
-- Every `/api/*` call needs `Authorization: Bearer <per-install token>`. The token lives in
+- CORS and the Origin check allow only the Doppel extension's pinned ID (`efcejekkbkbbknfpjgbpkojgnoomggbi`, set by the `key` in `extension/manifest.json`); other extensions, web pages and dev servers are rejected. Extra IDs: `DLP_EXTENSION_IDS`.
+- Every `/api/*` call, including `/api/policies/*` (which change what gets masked), needs `Authorization: Bearer <per-install token>`. The token lives in
   `~/.pii_gateway_token.json` (mode `0600`); an empty/missing token never authenticates.
 
 ### Mask endpoint

@@ -7,41 +7,31 @@ Allows the admin dashboard or orchestrator to:
 """
 from __future__ import annotations
 
-from typing import Any, Mapping
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, ConfigDict
+from typing import Any, Optional
+from fastapi import APIRouter, Header, HTTPException, Request
 
-from dlp_core.policy import (
-    PolicyConfigError,
-    get_active_routing_table,
-    load_policy_config,
-    reset_policy_to_defaults,
-)
-from app.security import origin_check
+from dlp_core.policy import Policy, get_active_routing_table, reset_policy_to_defaults
+from app.policy_runtime import apply_policies
+from app.security.auth import verify_token
+from app.security.origin_check import check_origin
 
 router = APIRouter(prefix="/policies", tags=["policies"])
 
 
-def _check_local_admin(request: Request) -> None:
-    """Ensure the caller is on the local loopback interface."""
-    client_host = request.client.host if request.client else ""
-    if client_host and client_host not in origin_check.ALLOWED_HOSTS:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Access denied: administration requests from {client_host} are not allowed. "
-                   "The backend only accepts localhost connections.",
-        )
-
-
-class PolicyApplyRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    OVERRIDES: dict[str, Any] | None = None
+def _require_local_admin(request: Request, authorization: Optional[str]) -> None:
+    """Same bar as /api/mask: loopback + extension Origin + Host check, AND the install token.
+    These routes change what gets masked, so they must not be callable by a web page or by
+    anything that merely reached the port."""
+    check_origin(request)
+    token = authorization[7:] if authorization and authorization.startswith("Bearer ") else None
+    if not verify_token(token):
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
 
 
 @router.get("/active")
-def get_active_policies(request: Request):
+def get_active_policies(request: Request, authorization: Optional[str] = Header(None)):
     """Return all active entity routing rules."""
-    _check_local_admin(request)
+    _require_local_admin(request, authorization)
     table = get_active_routing_table()
     result = {}
     for entity_type, entry in table.items():
@@ -59,7 +49,7 @@ def get_active_policies(request: Request):
 
 
 @router.post("/apply")
-def apply_policies(payload: dict[str, Any], request: Request):
+def apply_policies_route(payload: dict[str, Any], request: Request, authorization: Optional[str] = Header(None)):
     """Apply policy overrides from the admin dashboard or cloud export.
 
     Accepts either:
@@ -67,25 +57,30 @@ def apply_policies(payload: dict[str, Any], request: Request):
     or directly:
       {"ORGANIZATION": "redact", "EMAIL": "faker", ...}
     """
-    _check_local_admin(request)
+    _require_local_admin(request, authorization)
+    overrides = payload.get("OVERRIDES", payload)
+    if not isinstance(overrides, dict):
+        raise HTTPException(status_code=400, detail="Body must be {LABEL: action} or {\"OVERRIDES\": {...}}")
+    flat = {k: (v.get("action") if isinstance(v, dict) else v) for k, v in overrides.items()}
     try:
-        applied_count = load_policy_config(payload)
-        return {
-            "status": "ok",
-            "applied": applied_count,
-            "message": f"Successfully applied {applied_count} policy overrides to routing engine.",
-        }
-    except PolicyConfigError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to apply policies: {e}")
+        applied, rejected = apply_policies(flat, strict=True)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Rejected (nothing applied): {e}")
+    return {
+        "status": "ok",
+        "applied": applied,
+        "rejected": rejected,
+        "message": f"Applied {applied} policy overrides to the masking engine.",
+    }
 
 
 @router.post("/reset")
-def reset_policies(request: Request):
+def reset_policies(request: Request, authorization: Optional[str] = Header(None)):
     """Reset routing policies back to default settings."""
-    _check_local_admin(request)
+    _require_local_admin(request, authorization)
     reset_policy_to_defaults()
+    from app.pipeline import engine
+    engine._pipeline.set_policy(Policy())
     return {
         "status": "ok",
         "message": "Routing policies have been reset to defaults.",

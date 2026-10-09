@@ -80,7 +80,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 
-EXT = "chrome-extension://abcdefghijklmnopabcdefghijklmnop"
+EXT = "chrome-extension://" + origin_check.PINNED_EXTENSION_ID
 
 
 def _req(headers: dict[str, str], client_host: str = "127.0.0.1") -> Request:
@@ -103,6 +103,29 @@ class TestWebPagesAreRejected:
 
     def test_extension_origin_allowed(self):
         origin_check.check_origin(_req({"Origin": EXT, "Host": "127.0.0.1:8765"}))
+
+    @pytest.mark.parametrize("origin", [
+        "chrome-extension://abcdefghijklmnopabcdefghijklmnop",      # some OTHER extension
+        "chrome-extension://" + "a" * 32,
+        EXT + ".evil.com", EXT + "/",
+    ])
+    def test_other_extensions_are_rejected(self, origin):
+        with pytest.raises(HTTPException) as exc:
+            origin_check.check_origin(_req({"Origin": origin, "Host": "127.0.0.1:8765"}))
+        assert exc.value.status_code == 403
+
+    def test_extra_extension_ids_can_be_allowed_by_env(self, monkeypatch):
+        other = "chrome-extension://" + "b" * 32
+        monkeypatch.setenv("DLP_EXTENSION_IDS", "b" * 32 + ", not-an-id")
+        origin_check.check_origin(_req({"Origin": other, "Host": "127.0.0.1:8765"}))
+        assert "chrome-extension://not-an-id" not in origin_check.allowed_extension_origins()
+
+    def test_cors_preflight_only_for_the_pinned_extension(self):
+        c = TestClient(app, base_url="http://127.0.0.1:8765")
+        for origin, ok in ((EXT, True), ("http://localhost:5173", False), ("http://localhost:3000", False),
+                           ("chrome-extension://" + "c" * 32, False)):
+            r = c.options("/api/mask", headers={"Origin": origin, "Access-Control-Request-Method": "POST"})
+            assert (r.headers.get("access-control-allow-origin") == origin) is ok, origin
 
     def test_no_origin_allowed_for_non_browser_clients(self):
         origin_check.check_origin(_req({"Host": "127.0.0.1:8765"}))
@@ -181,3 +204,14 @@ class TestTokenFile:
         monkeypatch.setattr(auth, "_TOKEN_FILE", f)
         auth.get_install_token()
         assert stat.S_IMODE(f.stat().st_mode) == 0o600
+
+
+def test_pinned_extension_id_matches_the_manifest_key():
+    """The backend only trusts PINNED_EXTENSION_ID; it must be the ID Chrome derives from the
+    `key` in extension/manifest.json, or the extension would be locked out (or a different build trusted)."""
+    import base64, hashlib, json
+    from pathlib import Path
+    manifest = json.loads((Path(__file__).resolve().parents[2] / "extension" / "manifest.json").read_text())
+    der = base64.b64decode(manifest["key"])
+    derived = "".join(chr(ord("a") + int(c, 16)) for c in hashlib.sha256(der).hexdigest()[:32])
+    assert derived == origin_check.PINNED_EXTENSION_ID
