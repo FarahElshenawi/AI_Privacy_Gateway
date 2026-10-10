@@ -1,8 +1,10 @@
-version: "3.9"
 services:
   local-backend:
     build: ../local-backend
-    ports: ["8765:8765"]
+    # Dev/demo only. The backend accepts loopback peers, and a container sees the Docker gateway as the
+    # peer, so browser calls are refused; use the installer/ scripts for a real install.
+    # Loopback only: this service handles raw prompts and must never be reachable from the network.
+    ports: ["127.0.0.1:8765:8765"]
     env_file: ../.env
   cloud-backend:
     build: ../cloud-backend
