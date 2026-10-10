@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from app.db import init_db, seed_defaults
-from app.api import policy, audit, endpoints, admin as admin_api
+from app.api import policy, audit, endpoints, tenant, admin as admin_api
 
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
 
@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(policy.router)
     app.include_router(audit.router)
     app.include_router(endpoints.router)
+    app.include_router(tenant.router)
     app.include_router(admin_api.router)
 
     @app.get("/health", tags=["health"])

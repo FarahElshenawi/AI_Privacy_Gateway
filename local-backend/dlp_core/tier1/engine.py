@@ -44,7 +44,16 @@ class Tier1Engine:
     def __init__(self, config: Optional[Tier1Config] = None,
                  extra_recognizers: Sequence[Recognizer] = ()) -> None:
         self.config = config or Tier1Config()
-        self.recognizers: list[Recognizer] = build_default_recognizers(self.config) + list(extra_recognizers)
+        self._extra = list(extra_recognizers)
+        self.recognizers: list[Recognizer] = build_default_recognizers(self.config) + self._extra
+
+    def reconfigure(self, config: Tier1Config) -> None:
+        """Swap the configuration (e.g. tenant deny terms / internal domains) at runtime. The new
+        recognizers are built completely first, then replaced in one assignment each, so a scan in
+        flight sees either the old set or the new set, never a half-built one."""
+        recognizers = build_default_recognizers(config) + self._extra
+        self.recognizers = recognizers
+        self.config = config
 
     @property
     def labels(self) -> frozenset[str]:

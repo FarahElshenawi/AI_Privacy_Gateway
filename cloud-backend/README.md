@@ -589,3 +589,10 @@ on the `startup` event. If you're using a fresh DB file, it should populate
 ## License
 
 See the parent repo's LICENSE.
+
+
+## Tenant config
+
+`GET /api/tenant-config` (admin key or device token) and `PUT /api/tenant-config` (admin key only) hold the
+org's `deny_terms` (2-100 chars each, max 500) and `tenant_domains` (hostnames, max 200). Local backends pull
+them with the policies. Deny terms are never written to the admin log; it records only the counts.

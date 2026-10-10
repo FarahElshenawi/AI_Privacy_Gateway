@@ -83,6 +83,10 @@ class MergeEngine:
         """Atomically swap the label->action table (Policy is immutable after construction)."""
         self._policy = policy
 
+    def set_min_scores(self, min_scores: Optional[Mapping[str, float]]) -> None:
+        """Replace the per-label floors (a new dict is swapped in, so merge() never sees a half-update)."""
+        self._min = {k.upper(): float(v) for k, v in (min_scores or {}).items()}
+
     def merge(self, spans: Iterable[Span], text: Optional[str] = None) -> list[MergedSpan]:
         n = len(text) if text is not None else None
         items: list[tuple[int, int, Span, Action]] = []

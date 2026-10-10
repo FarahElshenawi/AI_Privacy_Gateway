@@ -19,6 +19,8 @@ PROTECTED = [
     ("GET", "/api/endpoints", None),
     ("POST", "/api/endpoints/enroll", {"hostname": "h1"}),
     ("POST", "/api/endpoints/heartbeat", {}),
+    ("GET", "/api/tenant-config", None),
+    ("PUT", "/api/tenant-config", {"deny_terms": ["x1"]}),
     ("GET", "/api/admin/log", None),
     ("POST", "/api/admin/rotate-enroll-key", None),
     ("DELETE", "/api/endpoints/1", None),

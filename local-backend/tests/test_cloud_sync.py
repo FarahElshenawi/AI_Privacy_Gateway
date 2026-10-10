@@ -293,7 +293,7 @@ def test_device_calls_use_the_endpoint_token_never_the_enrollment_key(monkeypatc
                                      "entity_count": 1, "conversation_id": None})
     cloud_sync._heartbeat(); cloud_sync._flush_audit(); cloud_sync._pull_and_apply_policies()
     later = [h for u, h in seen if not u.endswith("/enroll")]
-    assert len(later) == 3 and all(h == {"X-Endpoint-Token": "T" * 43} for h in later)
+    assert len(later) == 4 and all(h == {"X-Endpoint-Token": "T" * 43} for h in later)
 
 
 def test_saved_token_is_reused_without_re_enrolling(monkeypatch, fresh_identity):
