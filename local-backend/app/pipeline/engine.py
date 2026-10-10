@@ -16,6 +16,9 @@ vault, and the Demasker. Everything that can be tuned is an environment variable
     DLP_STRICT            default false  true = safe_to_send is False whenever coverage is incomplete
     DLP_MAX_TEXT_CHARS    default 200000 /mask and /detect reject longer text (files are batched instead)
 
+Tier 2 model (env var):
+    DLP_TIER2_MODEL       optional       model id or local directory (see scripts/fetch_model.py)
+
 Vault persistence (env vars):
     DLP_VAULT_PERSIST     default true   false = use InMemoryVault (mappings die on restart)
     DLP_VAULT_DB_PATH     default ~/.pii_gateway_vault.db  SQLite path for PersistentVault
@@ -96,7 +99,10 @@ def _build_vault():
 
 _vault = _build_vault()
 _tier1 = Tier1Engine(Tier1Config())
-_tier2 = Tier2Engine(Tier2Config(enabled=_env_bool("DLP_TIER2_ENABLED", True)))
+# DLP_TIER2_MODEL: a Hugging Face id or a local directory. Production installs point it at the pinned
+# snapshot made by scripts/fetch_model.py, so the model cannot change underneath a deployment.
+_tier2 = Tier2Engine(Tier2Config(enabled=_env_bool("DLP_TIER2_ENABLED", True),
+                                 model_name=os.environ.get("DLP_TIER2_MODEL") or Tier2Config().model_name))
 
 if os.environ.get("GLINER_ONNX_PATH"):
     import warnings
