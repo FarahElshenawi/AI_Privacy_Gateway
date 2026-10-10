@@ -28,7 +28,7 @@ const ev = () => ({ addListener() {} });
 globalThis.chrome = {
   storage: { local: mem(), session: mem(), onChanged: ev() },
   tabs: {
-    query: async () => [], onUpdated: ev(), onRemoved: ev(),
+    query: async () => [], onUpdated: ev(), onRemoved: ev(), onActivated: ev(),
     get: async () => ({ url: "https://chatgpt.com/" }),
   },
   action: { setBadgeText() {}, setBadgeBackgroundColor() {} },

@@ -30,10 +30,12 @@ import {
   parseGeminiStartName, buildGeminiStartBody,
   parseMultipart, buildMultipart, boundaryFromContentType,
 } from "./body.js";
+import { createState } from "./state.js";
 
 const BACKEND_URL = "http://127.0.0.1:8765";
 const TOKEN_KEY = "pii_gateway_token";
 const PROTECTION_KEY = "protectionEnabled";
+const LOCK_KEY = "protectionLocked";    // chrome.storage.managed (enterprise policy): protection cannot be turned off
 const DEMASK_KEY = "demaskEnabled";   // default ON; popup: "Show real values in replies"
 const MAX_ACTIVITY = 20;
 const MASK_TIMEOUT_MS = 15000;
@@ -57,14 +59,31 @@ const FETCH_PATTERNS = [
   "*://push.clients6.google.com/*",
 ].map((urlPattern) => ({ urlPattern, requestStage: "Request" }));
 
+/** True when an administrator has locked protection on (managed policy). Unreadable policy = not locked. */
+async function protectionLocked() {
+  try { return (await chrome.storage.managed.get(LOCK_KEY))[LOCK_KEY] === true; } catch { return false; }
+}
+
+/** Is protection on? A locked policy wins over the user's own switch. */
+async function protectionOn() {
+  if (await protectionLocked()) return true;
+  const { [PROTECTION_KEY]: enabled } = await chrome.storage.local.get(PROTECTION_KEY);
+  return enabled !== false;
+}
+
 const SESSION_KEY_VAULT_IDS = "vaultIdByConv";
 
 const attachedTabs = new Set();
 const attaching = new Map();            // tabId → in-flight attach promise
-const reservedNames = new Map();        // tabId → FIFO of masked ChatGPT upload filenames
-const authorizedMaskedFiles = new Map(); // tabId → FIFO of { hash, expiresAt, filename }
-const geminiUploads = new Map();        // tabId → FIFO of { name, type } from resumable "start"
-const pendingVaultId = new Map();       // tabId → vault id while the chat has no server id yet
+// These four survive the worker being stopped and restarted (see state.js).
+const persisted = createState();
+const reservedNames = persisted.map("reservedNames");              // tabId → FIFO of masked ChatGPT upload filenames
+const authorizedMaskedFiles = persisted.map("authorizedMaskedFiles", {   // tabId → FIFO of { hash, expiresAt, filename }
+  strip: (q) => q.map(({ hash, expiresAt, filename }) => ({ hash, expiresAt, filename })),   // never the bytes
+});
+const geminiUploads = persisted.map("geminiUploads");              // tabId → FIFO of { name, type } from resumable "start"
+const pendingVaultId = persisted.map("pendingVaultId");            // tabId → vault id while the chat has no server id yet
+const stateReady = persisted.hydrate();
 
 const isChatGPTUrl = (u) => !!u && (/^https:\/\/(chatgpt\.com|chat\.openai\.com|gemini\.google\.com)\//.test(u));
 const GEMINI_UPLOAD_HOSTS = new Set(["content-push.googleapis.com", "push.clients6.google.com"]);
@@ -500,7 +519,7 @@ async function consumeAuthorizedBrowserFile(tabId, body) {
   for (let i = 0; i < queue.length; i++) {
     const entry = queue[i];
     if (entry.expiresAt <= now) continue;
-    if (!entry.hash) entry.hash = await sha256Hex(entry.bytes);
+    if (!entry.hash) continue;
     if (entry.hash === hash) {
       matchIndex = i;
       break;
@@ -575,8 +594,8 @@ async function handleGetMapping(message, sender) {
   if (!sender.tab || !isChatGPTUrl(sender.tab.url)) {
     throw new BackendError("Mapping is only available on ChatGPT / Gemini", 400);
   }
-  const st = await chrome.storage.local.get([PROTECTION_KEY, DEMASK_KEY]);
-  if (st[PROTECTION_KEY] === false || st[DEMASK_KEY] === false) return { success: true, enabled: false };
+  const st = await chrome.storage.local.get(DEMASK_KEY);
+  if (!(await protectionOn()) || st[DEMASK_KEY] === false) return { success: true, enabled: false };
 
   const vaultId = await resolveVaultId(sender.tab.id, null);
   const since = Number.isInteger(message.sinceVersion) ? message.sinceVersion : null;
@@ -591,8 +610,8 @@ async function handleGetMapping(message, sender) {
 }
 
 async function handleSelectedFile(message, sender) {
-  const { [PROTECTION_KEY]: enabled } = await chrome.storage.local.get(PROTECTION_KEY);
-  if (enabled === false) return { success: true, passthrough: true };
+  const enabled = await protectionOn();
+  if (!enabled) return { success: true, passthrough: true };
 
   if (!sender.tab || !isChatGPTUrl(sender.tab.url)) {
     throw new BackendError("File interception is only available on ChatGPT", 400);
@@ -626,10 +645,10 @@ async function handleSelectedFile(message, sender) {
   authorizedMaskedFiles.set(tabId, authQueue);
   authQueue.push({
     hash: await sha256Hex(res.bytes),
-    bytes: res.bytes,
     filename: message.filename || "uploaded_file",
     expiresAt: Date.now() + 5 * 60 * 1000,
   });
+  authorizedMaskedFiles.set(tabId, authQueue);       // persist the push
 
   return {
     success: true,
@@ -799,6 +818,7 @@ async function handleGeminiUpload(source, params, body) {
 
 chrome.debugger.onEvent.addListener(async (source, method, params) => {
   if (method !== "Fetch.requestPaused") return;
+  await stateReady;            // a restarted worker must know its per-tab queues before judging a request
   const { requestId, request } = params;
   if (params.responseStatusCode !== undefined || params.responseErrorReason !== undefined) {
     try { await chrome.debugger.sendCommand(source, "Fetch.continueResponse", { requestId }); } catch {}
@@ -824,8 +844,8 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
     return;
   }
 
-  const { [PROTECTION_KEY]: enabled } = await chrome.storage.local.get(PROTECTION_KEY);
-  if (enabled === false) {
+  const enabled = await protectionOn();
+  if (!enabled) {
     try { await cont(source, requestId); } catch {}
     return;
   }
@@ -914,11 +934,11 @@ function updateBadge(tabId) {
 }
 
 async function syncAllTabs() {
-  const { [PROTECTION_KEY]: enabled } = await chrome.storage.local.get(PROTECTION_KEY);
+  const enabled = await protectionOn();
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
     if (!isChatGPTUrl(tab.url)) continue;
-    if (enabled === false) await detachDebuggerFromTab(tab.id);
+    if (!enabled) await detachDebuggerFromTab(tab.id);
     else await attachDebuggerToTab(tab.id);
   }
 }
@@ -930,8 +950,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.url && attachedTabs.has(tabId)) await detachDebuggerFromTab(tabId);
     return;
   }
-  const { [PROTECTION_KEY]: enabled } = await chrome.storage.local.get(PROTECTION_KEY);
-  if (enabled === false) return;
+  const enabled = await protectionOn();
+  if (!enabled) return;
   if (changeInfo.status === "loading" || changeInfo.status === "complete") {
     await attachDebuggerToTab(tabId);
   }
@@ -948,10 +968,34 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   updateBadge(source.tabId);
   console.warn(`[Doppel] Debugger detached from tab ${source.tabId}: ${reason}`);
   setDiag({ lastDetach: `tab ${source.tabId}: ${reason} at ${new Date().toLocaleTimeString()}` });
+  reattachAfterDetach(source.tabId, reason).catch(() => {});
 });
+
+/** Chrome (or DevTools) dropped our debugger: put it back at once rather than waiting for the alarm.
+ *  The one exception is the person pressing Cancel on Chrome's "debugging" bar, unless an admin locked
+ *  protection on; fighting the user over their own browser would be wrong, and the "!" badge shows it. */
+async function reattachAfterDetach(tabId, reason) {
+  if (reason === "target_closed") return;
+  const locked = await protectionLocked();
+  if (reason === "canceled_by_user" && !locked) return;
+  if (!(await protectionOn())) return;
+  let tab;
+  try { tab = await chrome.tabs.get(tabId); } catch { return; }
+  if (!isChatGPTUrl(tab.url)) return;
+  for (let i = 0; i < 3 && !attachedTabs.has(tabId); i++) {
+    await attachDebuggerToTab(tabId);
+    if (!attachedTabs.has(tabId)) await new Promise((r) => setTimeout(r, 500 * (i + 1)));
+  }
+}
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes[PROTECTION_KEY]) syncAllTabs();
+  if (area === "managed" && changes[LOCK_KEY]) syncAllTabs();
+});
+
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  protectionOn().then((on) => on && !attachedTabs.has(tabId) && chrome.tabs.get(tabId)
+    .then((t) => isChatGPTUrl(t.url) && attachDebuggerToTab(tabId))).catch(() => {});
 });
 
 // ─────────────────────────────────────────────────────────
@@ -961,6 +1005,13 @@ chrome.storage.onChanged.addListener((changes, area) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
+      await stateReady;
+      // The content scripts talk to us constantly. If the tab lost its debugger (Chrome dropped it, or this
+      // worker was restarted), take that as a cue to re-attach now instead of waiting for the next alarm.
+      if (sender && sender.tab && isChatGPTUrl(sender.tab.url) && !attachedTabs.has(sender.tab.id)
+          && message.type !== "DETACH_NOW" && await protectionOn()) {
+        attachDebuggerToTab(sender.tab.id).catch(() => {});
+      }
       switch (message.type) {
         case "PING":
           sendResponse({ success: true, pong: Date.now() });

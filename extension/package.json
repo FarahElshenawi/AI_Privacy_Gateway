@@ -5,6 +5,6 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "lint": "node --check src/background/service-worker.js && node --check src/background/body.js && node --check src/popup/popup.js && node --check src/content/demask.js && node --check src/content/file-interceptor.js"
+    "lint": "node --check src/background/service-worker.js && node --check src/background/body.js && node --check src/popup/popup.js && node --check src/content/demask.js && node --check src/content/file-interceptor.js && node --check src/background/state.js"
   }
 }
