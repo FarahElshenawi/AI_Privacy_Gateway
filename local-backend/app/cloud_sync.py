@@ -4,7 +4,7 @@ Three responsibilities, all running in background threads:
   1. Enrollment + heartbeat: enroll on first startup, then heartbeat every 60s.
      Lets the dashboard show which devices are online.
   2. Audit push: every 10s, flush buffered audit records to POST /api/audit.
-     The local stdlib logging handler captures records; this module ships them.
+     API handlers call record_event(); this module ships them.
   3. Policy pull: every 5 min, GET /api/policies/export and update the local
      routing table. Dashboard policy changes take effect without a restart.
 
@@ -26,8 +26,8 @@ Configuration (env vars):
 Privacy contract:
   - Audit records pushed to the cloud contain ONLY metadata (entity_type,
     action, count, latency). Never the text, never the real value.
-  - The local audit logger handler captures records as they are emitted by
-    emit_audit() / emit_demask_audit() and buffers them for the push loop.
+  - Events are queued by record_event() from the API handlers (mask, file, demask, fail_closed),
+    with latency. The device token identifies the endpoint server-side.
 """
 from __future__ import annotations
 
@@ -133,50 +133,29 @@ def _safe_label(value: Optional[str]) -> str:
     return v if _LABEL_RE.match(v) else "UNKNOWN"
 
 
-class CloudAuditHandler(logging.Handler):
-    """Captures audit records emitted by emit_audit() / emit_demask_audit()
-    and buffers them for the cloud push loop.
+def record_event(event_type: str, *, entity_types: Optional[dict] = None, entity_count: Optional[int] = None,
+                 latency_ms: Optional[float] = None, conversation_id: Optional[str] = None) -> None:
+    """Queue one metadata-only audit event for the cloud (structured: no log-line parsing).
 
-    Installed on the `privacy_gateway.audit` logger. Parses the structured
-    key=value log line back into a dict for the cloud /api/audit endpoint.
+    event_type: mask | detect | file | fail_closed | demask. `entity_types` is {LABEL: count};
+    for fail_closed it carries the REASON code instead (e.g. {"POLICY_BLOCK": 1}). Never raises:
+    cloud sync must not be able to break the masking path.
     """
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            msg = record.getMessage()
-            # The audit log format is "<event_kind> k1=v1 k2=v2 ..."
-            # Parse the trailing key=value pairs into a dict.
-            parts = msg.split()
-            if not parts:
-                return
-            event_kind = parts[0]  # "routing_decision" or "demask_event"
-            kv: dict = {}
-            for p in parts[1:]:
-                if "=" in p:
-                    k, v = p.split("=", 1)
-                    kv[k] = v
-            # Map to the cloud's AuditEventCreate schema
-            conv = _safe_conversation_id(kv.get("conversation_id"))
-            if event_kind == "routing_decision":
-                cloud_event = {
-                    "event_type": "mask",
-                    "entity_types": {_safe_label(kv.get("entity_type")): 1},
-                    "entity_count": 1,
-                    "conversation_id": conv,
-                }
-            elif event_kind == "demask_event":
-                cloud_event = {
-                    "event_type": "demask",
-                    "entity_types": {},
-                    "entity_count": max(0, int(kv.get("replacements_made", 0))),
-                    "conversation_id": conv,
-                }
-            else:
-                return
-            _audit_buffer.append(cloud_event)
-        except Exception:
-            # Never let audit handling break the masking path
-            pass
+    try:
+        if event_type not in ("mask", "detect", "file", "fail_closed", "demask"):
+            return
+        types = {_safe_label(k): max(0, int(v)) for k, v in (entity_types or {}).items()}
+        ev: dict = {
+            "event_type": event_type,
+            "entity_types": types,
+            "entity_count": max(0, int(entity_count if entity_count is not None else sum(types.values()))),
+            "conversation_id": _safe_conversation_id(conversation_id),
+        }
+        if latency_ms is not None:
+            ev["latency_ms"] = max(0, min(int(latency_ms), 3_600_000))
+        _audit_buffer.append(ev)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # --- HTTP helpers (stdlib only, no requests dependency) ---------------------
@@ -331,11 +310,12 @@ def _heartbeat_loop(stop_event: threading.Event) -> None:
 # --- Audit push -------------------------------------------------------------
 
 def _aggregate(events: list[dict]) -> list[dict]:
-    """Collapse per-entity events into one event per (event_type, conversation_id).
-    Fewer HTTP calls; the cloud stats only need counts."""
+    """Collapse per-request events into one event per (event_type, conversation_id): fewer HTTP calls,
+    counts summed, latency averaged. fail_closed events are NOT merged (the dashboard counts rows)."""
     groups: dict[tuple, dict] = {}
-    for e in events:
-        key = (e["event_type"], e.get("conversation_id"))
+    lat: dict[tuple, list[int]] = {}
+    for i, e in enumerate(events):
+        key = (e["event_type"], e.get("conversation_id"), i if e["event_type"] == "fail_closed" else None)
         g = groups.get(key)
         if g is None:
             g = groups[key] = {"event_type": e["event_type"], "entity_types": {},
@@ -343,6 +323,11 @@ def _aggregate(events: list[dict]) -> list[dict]:
         g["entity_count"] += int(e.get("entity_count", 0))
         for label, n in (e.get("entity_types") or {}).items():
             g["entity_types"][label] = g["entity_types"].get(label, 0) + int(n)
+        if e.get("latency_ms") is not None:
+            lat.setdefault(key, []).append(int(e["latency_ms"]))
+    for key, g in groups.items():
+        if lat.get(key):
+            g["latency_ms"] = round(sum(lat[key]) / len(lat[key]))
     return list(groups.values())
 
 
@@ -455,12 +440,6 @@ def start() -> None:
         logger.error("Cloud sync disabled: CLOUD_URL must be https:// (or localhost). "
                      "The credentials and policies must not travel over plain http.")
         return
-
-    # Install the audit handler so emit_audit() / emit_demask_audit() records
-    # get captured into _audit_buffer.
-    audit_logger = logging.getLogger("privacy_gateway.audit")
-    audit_logger.addHandler(CloudAuditHandler())
-    audit_logger.setLevel(logging.INFO)
 
     # Start the three background threads.
     for name, target in (

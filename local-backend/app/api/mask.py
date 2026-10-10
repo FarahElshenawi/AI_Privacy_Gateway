@@ -13,10 +13,12 @@ can't freeze the event loop (and /health) for everyone else.
 from __future__ import annotations
 
 import re
+import time
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
+from app import cloud_sync
 from app.pipeline import engine
 from app.security.auth import verify_token
 from app.security.origin_check import check_origin
@@ -81,8 +83,16 @@ def mask_pii(request: Request, body: MaskRequest, authorization: str | None = He
     if len(body.text) > engine.MAX_TEXT_CHARS:
         raise HTTPException(status_code=413, detail=f"Text longer than {engine.MAX_TEXT_CHARS} characters")
 
+    t0 = time.perf_counter()
+    cid = body.conversation_id
+
+    def _closed(reason: str) -> None:
+        cloud_sync.record_event("fail_closed", entity_types={reason: 1}, entity_count=1,
+                                latency_ms=(time.perf_counter() - t0) * 1e3, conversation_id=cid)
+
     result = engine.detect(body.text)
     if result.blocked:
+        _closed("DETECTION_BLOCKED")
         raise HTTPException(status_code=503, detail="Detection blocked: critical detector failed")
 
     try:
@@ -92,22 +102,33 @@ def mask_pii(request: Request, body: MaskRequest, authorization: str | None = He
         # can distinguish "blocked by policy" from "masking failed" (503) and from
         # "request was malformed" (422). The detail carries the entity type and rule
         # so the user understands which entity triggered the block.
+        _closed("POLICY_BLOCK")
         raise HTTPException(
             status_code=422,
             detail={"reason": "blocked_by_policy", "entity_type": exc.entity_type, "rule": exc.rule},
         )
     except (MaskingError, VaultCapacityError):
+        _closed("MASKING_FAILED")
         raise HTTPException(status_code=503, detail="Masking failed")   # nothing is returned for sending
 
     leaks = engine.residual_scan(masked.masked_text)
     strict = engine.STRICT_DEFAULT if body.strict is None else body.strict
     coverage_complete = not result.degraded
+    safe = not leaks and (coverage_complete or not strict)
+    if safe:
+        counts: dict[str, int] = {}
+        for ms in result.merged:
+            counts[ms.label] = counts.get(ms.label, 0) + 1
+        cloud_sync.record_event("mask", entity_types=counts, entity_count=len(result.merged),
+                                latency_ms=(time.perf_counter() - t0) * 1e3, conversation_id=cid)
+    else:
+        _closed("RESIDUAL_LEAK" if leaks else "DEGRADED_STRICT")
     return MaskResponse(
         masked_text=masked.masked_text,
         entities_found=len(result.spans),
         entity_types=sorted({s.label for s in result.spans}),
         leaks=leaks,
-        safe_to_send=not leaks and (coverage_complete or not strict),
+        safe_to_send=safe,
         degraded=result.degraded,
         blocked=False,
         coverage_complete=coverage_complete,

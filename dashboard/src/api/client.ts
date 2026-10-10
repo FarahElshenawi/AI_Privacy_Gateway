@@ -89,7 +89,7 @@ export interface PolicyUpdate {
 
 export interface AuditEvent {
   id: number;
-  event_type: "mask" | "detect" | "file" | "fail_closed";
+  event_type: "mask" | "detect" | "file" | "fail_closed" | "demask";
   entity_types: Record<string, number> | null;
   entity_count: number;
   latency_ms: number | null;
