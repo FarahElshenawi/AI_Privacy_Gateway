@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api, type Policy } from "../api/client";
+import { api, type Policy, type PolicyChange } from "../api/client";
+import { formatRelative } from "../lib/utils";
 import { Plus, Trash2, Lock, ShieldCheck } from "lucide-react";
 
 const ACTIONS: Policy["action"][] = ["faker", "redact", "keep", "block"];
@@ -33,7 +34,11 @@ export function Policies() {
   const [newType, setNewType] = useState("");
   const [newAction, setNewAction] = useState<Policy["action"]>("faker");
 
+  const [history, setHistory] = useState<PolicyChange[]>([]);
+  const loadHistory = () => api.policyHistory(15).then(setHistory).catch(() => setHistory([]));
+
   const load = async () => {
+    loadHistory();
     try {
       const list = await api.listPolicies(1);
       // Sort: block first (critical), then redact (secrets), then faker (PII), then keep (preserve)
@@ -288,6 +293,26 @@ export function Policies() {
             globally routable public IPs are preserved (<code className="mono text-[var(--ink)]">KEEP</code>), while private, loopback, CGNAT, link-local, and unparseable IPs are stripped (<code className="mono text-[var(--danger)]">REDACT</code>).
           </p>
         </div>
+      </div>
+
+      {/* Change history */}
+      <div className="card p-5">
+        <span className="eyebrow">Change history</span>
+        {history.length === 0 ? (
+          <p className="mt-2 text-[13px] text-[var(--muted)]">No changes recorded yet.</p>
+        ) : (
+          <div className="mt-2 divide-y divide-[var(--border)]">
+            {history.map((h) => (
+              <div key={h.id} className="flex items-baseline gap-3 py-2 text-[12.5px]">
+                <span className="mono text-[var(--ink)]">{h.entity_type}</span>
+                <span className="mono text-[var(--muted)] flex-1">
+                  {(h.old_action ?? "(new)")} → {(h.new_action ?? "(removed)")}
+                </span>
+                <span className="text-[var(--muted)]">{formatRelative(h.changed_at)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="p-4 card bg-[var(--subtle)]/30 border-dashed text-[12px] text-[var(--muted)] space-y-1">
