@@ -286,7 +286,7 @@ def internal_url_valid(value: str, suffixes: Iterable[str]) -> bool:
         host = urlsplit(value).hostname
     except ValueError:
         return False
-    return host is not None and bool(host) and is_internal_host(host, suffixes)
+    return bool(host) and is_internal_host(host, suffixes)
 
 
 def bare_internal_hostname_valid(host: str, suffixes: Iterable[str], tenant: Iterable[str] = ()) -> bool:
@@ -374,8 +374,6 @@ def basic_auth_valid(b64: str) -> bool:
 
 
 def pem_valid(block: str) -> bool:
-    # Keys pasted from JSON / env files carry literal backslash-n (`\\n`) instead of newlines.
-    block = block.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "")
     lines = [ln.strip() for ln in block.splitlines()]
     body = "".join(ln for ln in lines
                    if ln and not ln.startswith("-----") and ":" not in ln and not ln.startswith("="))
@@ -433,3 +431,47 @@ def connection_string_valid(value: str) -> bool:
     except ValueError:
         return False
     return has_password or parts.scheme.lower() in _DB_SCHEMES
+
+
+# ---------------------------------------------------------------- seed / recovery phrases
+_SEED_STOPWORDS = frozenset(
+    "the and you your for with that this are was were have has had from they them their will would can could "
+    "not but all any one our out who how why what when where which there here than then just only also been "
+    "being into over under about after before because while should these those such very more most some "
+    "other each every many much".split())
+
+
+def seed_words_valid(value: str) -> bool:
+    """12-24 plain words and (almost) no everyday function words. A real mnemonic is a list of
+    dictionary words with no grammar, a sentence is not: more than two stop words means prose."""
+    words = re.split(r"[ \t,\-]+", value.strip())
+    if not 12 <= len(words) <= 24 or not all(w.isalpha() for w in words):
+        return False
+    return sum(w.lower() in _SEED_STOPWORDS for w in words) <= 2
+
+
+# ---------------------------------------------------------------- non-English cues, login pairs, short seed values
+def _has_secret_texture(v: str) -> bool:
+    """A digit, a symbol, or mixed case: what a password looks like and a plain word does not."""
+    return (any(c.isdigit() for c in v) or any(not c.isalnum() for c in v)
+            or (any(c.isupper() for c in v) and any(c.islower() for c in v)))
+
+
+def intl_password_ok(value: str) -> bool:
+    v = value.strip()
+    return (len(v) >= 6 and v.lower() not in _NOT_A_SECRET_WORDS and not PLACEHOLDER.match(v)
+            and not looks_like_reference(v) and _has_secret_texture(v))
+
+
+def login_secret_ok(value: str) -> bool:
+    """The second half of 'login: user / value': plain words like 'success / failure' must not match."""
+    return intl_password_ok(value)
+
+
+def seed_token_ok(value: str) -> bool:
+    v = value.strip()
+    if v.lower() in _NOT_A_SECRET_WORDS or PLACEHOLDER.match(v):
+        return False
+    if "-" in v:
+        return all(p.isalnum() for p in v.split("-"))
+    return any(c.isdigit() for c in v)

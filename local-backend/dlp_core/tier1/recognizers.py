@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable, Iterator, Optional, Protocol, Union, runtime_checkable, Sequence
+from typing import Callable, Iterator, Optional, Protocol, Union, runtime_checkable
 
 from ..span import Span
 from . import patterns as P
@@ -37,11 +37,8 @@ def _src(name: str) -> str:
 
 @runtime_checkable
 class Recognizer(Protocol):
-    @property
-    def name(self) -> str: ...
-
-    @property
-    def labels(self) -> Sequence[str]: ...
+    name: str
+    labels: tuple[str, ...]
 
     def scan(self, text: str) -> Iterator[Span]: ...
 
@@ -267,3 +264,24 @@ class DenyTermRecognizer:
         src = _src(self.name)
         for m in self._rx.finditer(text):
             yield Span(m.start(), m.end(), "DENY_TERM", 1.0, src, None, True)
+
+
+# ====================================================================== ssh-style user@host
+class SshUserRecognizer:
+    """The USER part of user@host in an ssh / scp / sftp / mosh / rsync command line.
+
+    GLiNER2 reads an e-mail-shaped word such as `deploy@db01.internal` as ONE word and so cannot mark the user
+    alone; a deterministic rule can. Only tokens AFTER the command word on the same line (at most 200 chars) count,
+    and shared service accounts (root, git, ubuntu, ...) are skipped."""
+    name = "ssh_user"
+    labels = ("USERNAME",)
+
+    def scan(self, text: str) -> Iterator[Span]:
+        src = _src(self.name)
+        for cm in P.SSH_CMD.finditer(text):
+            nl = text.find("\n", cm.end())
+            stop = min(len(text) if nl < 0 else nl, cm.end() + 200)
+            for m in P.USER_AT_HOST.finditer(text, cm.end(), stop):
+                if m.group("u").lower() in P.SERVICE_ACCOUNTS:
+                    continue
+                yield Span(m.start("u"), m.end("u"), "USERNAME", 0.9, src, None, True)

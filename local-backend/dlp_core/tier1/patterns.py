@@ -187,3 +187,49 @@ RECOVERY_HEAD = re.compile(r"(?<![A-Za-z])(?:recovery|backup)[ \t]+(?:codes?|key
 RECOVERY_TOKEN = re.compile(
     r"[ \t\r\n,;]*(?P<c>(?=[A-Za-z0-9-]*\d)(?:[A-Za-z0-9]{4,8}(?:-[A-Za-z0-9]{3,8}){1,3}|\d{8,10}))(?![A-Za-z0-9-])"
 )
+
+
+# ---------------------------------------------------------------- seed / recovery phrases
+# cue word(s) + a DELIMITER (':', '=', 'is', '->', line break) + 12-24 words of 3-8 letters.
+# A bare space after the cue is not enough ("mnemonic device helps you ..." is prose, not a seed).
+# Fail-closed: a plain word right after the 12-24 seed words can be swallowed into the span (over-masking one
+# word is preferred to leaving a seed word readable).
+_SEED_CUES = (
+    r"(?:seed|recovery|backup)[ \t_-]*(?:phrase|words?)|secret[ \t_-]*(?:recovery[ \t]+)?phrase|"
+    r"mnemonic(?:[ \t]+(?:phrase|words?))?|wallet[ \t]+(?:seed|words)|"
+    r"frase[ \t]+(?:de[ \t]+recuperaci[o\u00f3]n|semilla|secreta)|"
+    r"phrase[ \t]+(?:de[ \t]+r[e\u00e9]cup[e\u00e9]ration|secr[e\u00e8]te|mn[e\u00e9]monique)|"
+    r"wiederherstellungsphrase|geheimphrase|"
+    r"\u0639\u0628\u0627\u0631\u0629[ \t]+\u0627\u0644\u0627\u0633\u062a\u0631\u062f\u0627\u062f|"
+    r"\u0627\u0644\u0639\u0628\u0627\u0631\u0629[ \t]+\u0627\u0644\u0633\u0631\u064a\u0629|"
+    r"\u0627\u0644\u0643\u0644\u0645\u0627\u062a[ \t]+\u0627\u0644\u0633\u0631\u064a\u0629"
+)
+_SEED_HEAD = (
+    r"(?:" + _SEED_CUES + r")"
+    r"(?:[ \t]*\([^)\n]{0,24}\))?"                                  # "(12 words)"
+    r"(?:[ \t]+(?:is|are|\u0647\u064a|es|est|lautet)\b[ \t]*[:=]?[ \t]*|[ \t]*[:=]+[ \t]*\r?\n?[ \t]*|"
+    r"[ \t]*[-\u2013\u2014]*>[ \t]*|[ \t]*\r?\n[ \t]*)"
+)
+SEED_PHRASE = re.compile(_SEED_HEAD + r"(?P<v>[a-z]{3,8}(?:[ \t,\-]+[a-z]{3,8}){11,23})(?![A-Za-z])", I)
+# A short value right after a seed/recovery cue: a hyphenated passphrase (3+ parts) or a word with 3+ digits.
+SEED_TOKEN = re.compile(
+    _SEED_HEAD + r"(?P<v>[A-Za-z0-9]{2,12}(?:-[A-Za-z0-9]{2,12}){2,6}|[A-Za-z]{3,12}\d{3,8})(?![\w-])", I)
+
+# ---------------------------------------------------------------- ssh-style  user@host
+SSH_CMD = re.compile(r"\b(?:ssh|scp|sftp|mosh|rsync)\b", I)
+USER_AT_HOST = re.compile(r"(?<![\w.@+\-])(?P<u>[A-Za-z_][\w.\-]{0,31})@(?=[A-Za-z0-9_\[])")
+# shared service accounts are not personal data and masking them would break the command
+SERVICE_ACCOUNTS = frozenset(
+    "root git ubuntu ec2-user admin administrator pi centos debian vagrant ansible postgres www-data hg user username".split())
+
+
+# ---------------------------------------------------------------- passwords: other languages and "login: user / secret"
+# Cue words of the form "<password word> <is|:|=> value" in Spanish, French, German, Portuguese and Arabic.
+PASSWORD_INTL = re.compile(
+    r"(?<![\w])(?:contrase[\u00f1n]a|mot[ \t]+de[ \t]+passe|mdp|passwort|kennwort|senha|"
+    r"\u0643\u0644\u0645\u0629[ \t]+(?:\u0627\u0644\u0645\u0631\u0648\u0631|\u0627\u0644\u0633\u0631))"
+    r"[ \t]*(?:[:=]|(?<!\w)(?:es|est|ist|lautet|\u0647\u064a)(?!\w))[ \t]*[\"']?(?P<v>[^\s\"',;`]{6,128})", I)
+# "login: alice / S3cret!"  "creds: alice:S3cret!"  "credentials -> alice | S3cret!"  (value = second half)
+LOGIN_PAIR = re.compile(
+    r"(?<![A-Za-z0-9])(?:log-?in|credentials?|creds)[ \t]*(?:[:=]|->|=>)[ \t]*"
+    r"[A-Za-z_][\w.@\-]{1,40}[ \t]*[/|:][ \t]*(?P<v>[^\s\"',;`]{6,64})", I)
