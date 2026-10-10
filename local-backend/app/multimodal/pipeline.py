@@ -24,8 +24,14 @@ from dlp_core.detection import DetectionResult
 from dlp_core.masker import OffsetMasker
 from dlp_core.segments import DetectionBlocked, SegmentMasker
 
+from app.multimodal import ooxml
 from app.multimodal.file_type_detector import detect_file_type
 from app.multimodal.handlers import get_handler, zip_raw_scan
+
+
+def _image_policy() -> str:
+    from app.pipeline import engine
+    return engine.IMAGE_POLICY
 
 
 _EXT = {"word": ".docx", "excel": ".xlsx", "pdf": ".pdf"}
@@ -53,7 +59,14 @@ class MultimodalPipeline:
         ftype = detect_file_type(str(src))
         if ftype == "unknown":
             return self._fail(ftype, "unknown_file_type")
+        policy = _image_policy()
         if ftype == "image":
+            if policy == "warn":
+                # Explicit org choice: the image goes out UNCHANGED (no OCR here), with a visible warning.
+                shutil.copyfile(src, out)
+                return {"success": True, "input_type": ftype, "output_path": str(out), "replacements_made": 0,
+                        "leaks": [], "blockers": [], "warnings": ["image_not_inspected"], "degraded": False,
+                        "uncovered_labels": [], "error": None}
             return self._fail(ftype, "image_files_need_ocr_not_supported", blockers=["image_file"])
 
         # The type comes from the content, but the libraries insist on the right extension: if the
@@ -76,7 +89,11 @@ class MultimodalPipeline:
             return self._fail(ftype, f"parse_failed:{code}")
 
         blockers = list(extraction.blockers)
-        has_text = any(s.text.strip() for s in extraction.segments)
+        if policy == "block" and "images_not_inspected" in extraction.warnings:
+            blockers.append("images_present")
+        # picture names / alt text are metadata, not body text: an image-only document has no text
+        has_text = any(s.text.strip() for s in extraction.segments
+                       if not (isinstance(s.key, tuple) and s.key and s.key[0] == "alt"))
         if not has_text and extraction.uninspected and "no_extractable_text" not in blockers:
             blockers.append("no_extractable_text")
         if blockers:
@@ -101,6 +118,14 @@ class MultimodalPipeline:
         if post:
             self._remove(out)
             return self._fail(ftype, "blocked", blockers=post, warnings=extraction.warnings)
+        if ftype in ("word", "excel"):
+            try:
+                scrubbed = ooxml.scrub(str(out))
+            except Exception as exc:  # noqa: BLE001 - an unscrubbed package must not be sent
+                self._remove(out)
+                return self._fail(ftype, f"scrub_failed:{type(exc).__name__}", warnings=extraction.warnings)
+            if scrubbed:
+                extraction.warnings.append("metadata_scrubbed")
 
         leaks = self._verify(handler, str(out), ftype)
         if leaks:

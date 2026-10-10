@@ -14,6 +14,7 @@ import zipfile
 from openpyxl import load_workbook
 from openpyxl.comments import Comment
 
+from app.multimodal.ooxml import package_blockers
 from dlp_core.segments import Segment, SegmentMaskResult
 
 from .base import Extraction
@@ -68,6 +69,9 @@ class ExcelHandler:
 
     def extract(self, path: str) -> Extraction:
         blockers, warnings, media = _package(path)
+        more_b, more_w = package_blockers(path, "excel")
+        blockers = sorted(set(blockers) | set(more_b))
+        warnings = warnings + more_w
         try:
             wb = load_workbook(path, keep_links=False)
         except Exception as exc:  # noqa: BLE001

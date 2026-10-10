@@ -390,11 +390,15 @@ def apply_tenant_config(cfg: dict) -> bool:
             and len(terms) <= 500 and len(domains) <= 200):
         logger.warning("Ignored malformed tenant config")
         return False
+    image_policy = cfg.get("image_policy", "default")
+    if image_policy not in ("default", "block", "warn"):
+        logger.warning("Ignored malformed tenant config")
+        return False
     version = cfg.get("version")
     if version is not None and version == _tenant_version:
         return False
     from app.pipeline import engine
-    engine.apply_tenant_config([t.strip() for t in terms], [d.lower() for d in domains])
+    engine.apply_tenant_config([t.strip() for t in terms], [d.lower() for d in domains], image_policy)
     _tenant_version = version if isinstance(version, int) else None
     logger.info("Applied tenant config: %d deny terms, %d internal domains", len(terms), len(domains))
     return True
