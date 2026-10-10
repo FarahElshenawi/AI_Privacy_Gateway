@@ -28,8 +28,9 @@ User types prompt / uploads file in ChatGPT
   ChatGPT responds (with fake values)
          │
          ▼
-  Replies are restored in the page by a content script (display only).
-  Today the user sees surrogate values (e.g. [REDACTED:CREDIT_CARD]) in responses.
+  Replies are restored in the page by a content script (display only):
+  surrogates are swapped back to the real values the user typed. Values that are
+  redacted without storage (e.g. [REDACTED:CREDIT_CARD]) stay redacted.
 ```
 
 **PII never crosses the network.** Only masked surrogates are sent to OpenAI.
@@ -44,12 +45,17 @@ User types prompt / uploads file in ChatGPT
 ┌─────────────────────────────────────────────────────────────────────┐
 │  BROWSER                                                             │
 │  ┌──────────────────────────────────────────────────────────────┐    │
-│  │  Service Worker (only actor — no content scripts)             │    │
+│  │  Service Worker (the enforcement point)                       │    │
 │  │  ├── chrome.debugger.attach({tabId}, "1.3")                  │    │
 │  │  ├── Fetch.enable (CDP network-layer interception)           │    │
-│  │  ├── Network.enable (body retrieval via networkId)            │    │
 │  │  ├── On Fetch.requestPaused → mask → Fetch.continueRequest   │    │
+│  │  ├── per-tab queues kept in chrome.storage.session            │    │
 │  │  └── holds the install token                                  │    │
+│  └──────────────────────────────────────────────────────────────┘    │
+│  ┌──────────────────────────────────────────────────────────────┐    │
+│  │  Content scripts (convenience only, never the safety net)     │    │
+│  │  ├── file-interceptor: masks a picked file before upload      │    │
+│  │  └── demask: shows real values in replies (display only)      │    │
 │  └──────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────┘
                                      │ HTTP (127.0.0.1:8765)
@@ -87,9 +93,9 @@ User types prompt / uploads file in ChatGPT
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐   │
 │  │  app/ — FastAPI Layer (thin wrappers)                         │   │
-│  │  ├── api/ (mask, demask, detect, process_file)                │   │
+│  │  ├── api/ (mask, demask, mapping, detect, process_file, policies) │
 │  │  ├── pipeline/engine.py (shared singleton)                   │   │
-│  │  ├── multimodal/handlers/ (PDF, Word, Excel, text)           │   │
+│  │  ├── multimodal/ (PDF, Word, Excel, text handlers + OOXML)   │   │
 │  │  └── security/ (token, origin check)                        │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
@@ -97,9 +103,9 @@ User types prompt / uploads file in ChatGPT
 
 ### Trust Boundaries
 
-- **Browser extension SW:** The only actor on the browser side. Intercepts at CDP layer — below page scripts, page workers, and page CSP. No content scripts, no DOM injection.
-- **Local backend:** All sensitive processing happens here. Same machine, different process. Holds the install token.
-- **Cloud (future):** Cut by default. If present, carries metadata only (counts, timing) — never prompt content.
+- **Browser extension service worker:** the enforcement point. It intercepts at the CDP layer — below page scripts, page workers, and page CSP — and blocks anything it cannot mask. Content scripts only add convenience (masking a picked file early, showing real values in replies); nothing depends on them for safety.
+- **Local backend:** All sensitive processing happens here. Same machine, different process, bound to `127.0.0.1`. It only answers the pinned extension ID (plus `DLP_EXTENSION_IDS`) and holds the install token. The vault's keys live in the OS credential store.
+- **Cloud (optional):** the control plane for a fleet. It carries policies, deny terms, audit **metadata** (counts, timing, entity types) and device status — never prompt or file content. Three separate credentials: an admin key (dashboard), an enrollment key (can only register a device) and a per-device token (heartbeat, audit write, policy read).
 
 ---
 
@@ -131,6 +137,8 @@ curl http://127.0.0.1:8765/health
 
 On first start, Tier 2 (GLiNER2) loads in a background thread (~10-30s). Until ready, `/health` reports `"tier2":"warming_up"` and name detection is unavailable (degraded mode).
 
+For a managed install (pinned model, service that restarts at login) see [Deployment](#deployment).
+
 ### 2. Load the Chrome Extension
 
 1. Open `chrome://extensions` in Chrome
@@ -149,11 +157,12 @@ The extension will:
 2. Send to backend for detection + masking
 3. Replace the body with masked text
 4. Forward the masked request via `Fetch.continueRequest` (base64-encoded)
+5. Re-attach itself if Chrome drops the debugger, and keep its per-tab state across service-worker restarts
 
 Attached files (PDF, Word, Excel) are intercepted the same way and sent to `/api/process_file`;
 the masked file is what gets uploaded. Anything that can't be masked is blocked.
 
-ChatGPT receives: "My name is [FAKE NAME], my card is [REDACTED:CREDIT_CARD], email [FAKE EMAIL]"
+ChatGPT receives: "My name is [FAKE NAME], my card is [REDACTED:CREDIT_CARD], email [FAKE EMAIL]". In the page you keep seeing your own name and email; the card stays redacted.
 
 ---
 
@@ -282,15 +291,19 @@ Files are processed per-segment (page, paragraph, cell) with offset-based edits 
 | Format | Handler | How it masks | Fails closed on |
 |--------|---------|-------------|-----------------|
 | Text | `handlers/text.py` | Offset edits, preserves BOM + encoding | n/a |
-| Word | `handlers/word.py` | Paragraph→run mapping (headers, tables, text boxes, hyperlinks) | Tracked deletions, comments, embedded objects |
-| Excel | `handlers/excel.py` | String cells, formula literals, comments, hidden sheets | Sheet names with PII |
+| Word | `handlers/word.py` | Paragraph→run mapping (headers, tables with column-header context, text boxes, hyperlinks, alt text) | Tracked deletions, comments, embedded objects, charts, SmartArt, glossary documents, custom XML text |
+| Excel | `handlers/excel.py` | String and numeric cells (with column-header context, e.g. an "SSN" column), formula literals, comments, hidden sheets | Sheet names with PII, charts, custom XML text |
 | PDF | `handlers/pdf.py` | Character-level glyph redaction via PyMuPDF | Scans, image-only pages, encrypted files |
 
+File type is decided by **content**, not the extension (a zip holding `word/document.xml` is Word; a renamed file is not trusted).
+
+Word and Excel output is also **scrubbed of metadata**: thumbnails, reviewer lists, custom and application properties, and author names are removed or blanked. Images cannot be read, so `DLP_IMAGE_POLICY` decides what happens to them (blocked by default); parts the scanner cannot read (charts, SmartArt) are blocked unless `DLP_OOXML_PARTS=warn`, and even then a raw scan of every package part still blocks card numbers, keys and similar hard evidence.
+
 **Fail-closed rules:**
-- Scanned/image-only PDFs → rejected (`no_extractable_text`)
+- Scanned/image-only PDFs and standalone images → rejected (no OCR)
 - Failed critical detector → no output file
 - Masked file re-read and residual-scanned
-- `strict=True` blocks when coverage incomplete
+- `strict=True` blocks when coverage is incomplete; for files this is on by default (`DLP_FILE_STRICT`), so a file is never returned while Tier 2 was down
 
 ---
 
@@ -302,7 +315,8 @@ Files are processed per-segment (page, paragraph, cell) with offset-based edits 
 | `/api/demask` | POST | Restore real values in a text using the vault (audited, rate-limited). |
 | `/api/mapping` | POST | Versioned fake→real entries of one conversation, used by the extension to restore replies in the page (audited, rate-limited). |
 | `/api/detect` | POST | Detect PII only (no masking). Returns spans with offsets. |
-| `/api/process_file` | POST | Process a file upload (extract → mask → reconstruct). 50 MB cap. |
+| `/api/process_file` | POST | Process a file upload (extract → mask → reconstruct → re-read and verify). 50 MB cap. Refusals are 4xx with the reason and blocker codes. |
+| `/api/policies/active`, `/apply`, `/reset` | GET / POST | Inspect or change the live label → action table (critical secrets can never be set to `keep`). |
 | `/health` | GET | Health check + tier status (`tier1`, `tier2`). No auth. |
 | `/token` | GET | Get per-install token. Loopback only. |
 
@@ -335,6 +349,20 @@ All configuration is via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `DLP_TIER1_TIMEOUT_S` / `DLP_TIER2_TIMEOUT_S` | 2.0 / 3.0 | Base time budget per tier. Tier 1 is critical (exceeding blocks); Tier 2 degrades. Big inputs get more time per 1000 characters (`DLP_TIERn_PER_KCHAR_S`), up to `DLP_TIERn_MAX_S` for prompts and `DLP_TIERn_FILE_MAX_S` for files. |
+| `DLP_TIER2_ENABLED` | true | Enable/disable GLiNER2 |
+| `DLP_TIER2_MODEL` | model id | Model id or a local directory, normally the pinned snapshot from `scripts/fetch_model.py`. |
+| `DLP_WARM_TIER2` | true | Pre-load model at startup in background thread |
+| `DLP_STRICT` | false | Block prompts when coverage is incomplete (production: set true) |
+| `DLP_FILE_STRICT` | true | Refuse files when any detector tier was degraded |
+| `DLP_MAX_TEXT_CHARS` | 200000 | Max text length for `/mask` and `/detect` |
+| `DLP_IMAGE_POLICY` / `DLP_OOXML_PARTS` | default / block | What to do with images and with unscannable Word/Excel parts |
+| `DLP_EXTENSION_IDS` | unset | Extra extension IDs the backend accepts (the pinned ID is always allowed) |
+| `DLP_VAULT_*`, `DLP_KEYSTORE`, `CLOUD_URL`, `CLOUD_ENROLL_KEY` | see below | Vault persistence and keys, cloud sync |
+
+The full table, with the vault, cloud-sync and threshold settings, is in [`local-backend/README.md`](local-backend/README.md).
+
+----------|---------|-------------|
 | `DLP_TIER1_TIMEOUT_S` | 2.0 | Tier 1 timeout (critical — exceeding blocks) |
 | `DLP_TIER2_TIMEOUT_S` | 3.0 | Tier 2 timeout (exceeding degrades) |
 | `DLP_TIER2_ENABLED` | true | Enable/disable GLiNER2 |
@@ -353,6 +381,8 @@ uv run pytest dlp_core/ tests/ -v
 
 Tests that need the real gliner2 model are skipped when it is not installed.
 
+Extension: `cd extension && npm test` (mocked `chrome.*` and CDP, the real service worker). Dashboard: `cd dashboard && npx tsc --noEmit && npm run build`. Cloud: `cd cloud-backend && pytest` (PostgreSQL tests run when `TEST_POSTGRES_URL` is set). CI runs all of these, the local backend on Linux, Windows and macOS.
+
 Areas covered: merge/masking/vault invariants, Tier 1 and Tier 2, the detection pipeline, the evaluation harness and
 frozen hold-out hash, the API, security (token, origin, pinned extension ID), multimodal files, cloud sync and audit events.
 Run `pytest dlp_core tests` in `local-backend/` and `pytest` in `cloud-backend/`; per-file counts are not listed here because they drift.
@@ -360,9 +390,19 @@ Run `pytest dlp_core tests` in `local-backend/` and `pytest` in `cloud-backend/`
 
 ---
 
+## Deployment
+
+For a fleet, `installer/` has one installer per OS (service that starts at login and restarts on failure, listening on `127.0.0.1` only). The Tier 2 model is downloaded once at a **pinned commit** by `scripts/fetch_model.py` and loaded from disk, so it cannot change underneath a deployment. The extension is force-installed by Chrome policy, which can also lock protection on (`protectionLocked`).
+
+See [`docs/deployment.md`](docs/deployment.md) for the commands, the Chrome policy JSON, update handling and post-rollout checks. The extension ID is pinned (`efcejekkbkbbknfpjgbpkojgnoomggbi`); keep `doppel-extension.pem` secret, because whoever holds it can publish an update Chrome will accept as Doppel.
+
+---
+
 ## Evaluation
 
 ### Tier 1 baseline (frozen hold-out, 298 cases)
+
+> Numbers are from the last full evaluation run. The hold-out file itself is not committed (it contains synthetic secrets that GitHub push protection rejects); regenerate it with `python -m dlp_core.eval.make_holdout`, which is checked against `holdout_v1.sha256` by a test.
 
 | Metric | Value |
 |--------|-------|
@@ -395,7 +435,8 @@ AI_Privacy_Gateway/
 │   │   ├── policy.py            # Label → Action (unknown = REDACT, fail-closed)
 │   │   ├── merge.py             # MergeEngine (union overlaps, strictest wins)
 │   │   ├── masker.py            # OffsetMasker (offset-based, no str.replace) + Demasker
-│   │   ├── vault.py             # InMemoryVault (Fernet-encrypted, HMAC-keyed, thread-safe)
+│   │   ├── vault.py             # Vault (Fernet-sealed, HMAC-keyed); PersistentVault = encrypted SQLite
+│   │   ├── keystore.py          # OS credential store for the vault keys (file fallback)
 │   │   ├── detection.py         # DetectionPipeline (parallel tiers, timeouts, degraded)
 │   │   ├── segments.py          # SegmentMasker (per-segment offset edits for files)
 │   │   ├── residual_scanner.py # Independent last-gate (checksums only, fail-closed)
@@ -403,20 +444,26 @@ AI_Privacy_Gateway/
 │   │   ├── tier2/               # Semantic (GLiNER2-PII) — 17 labels
 │   │   └── eval/                # Eval harness + bake-off + frozen hold-outs
 │   ├── app/                     # FastAPI layer (thin wrappers)
-│   │   ├── api/                 # mask, demask, detect, process_file
+│   │   ├── api/                 # mask, demask, mapping, detect, process_file, policies
 │   │   ├── pipeline/engine.py   # Shared singleton wiring
-│   │   ├── multimodal/handlers/ # Per-format file handlers (PDF, Word, Excel, text)
+│   │   ├── cloud_sync.py        # Enroll, heartbeat, audit events, policy + tenant config pull
+│   │   ├── multimodal/          # File pipeline, content-based type detection, OOXML scrubbing
+│   │   │   └── handlers/        # Per-format handlers (PDF, Word, Excel, text)
 │   │   └── security/            # Token, origin check
 │   └── tests/                   # Integration tests
 ├── extension/                   # Chrome extension (Manifest V3, chrome.debugger)
 │   ├── manifest.json            # debugger permission, host_permissions
-│   ├── src/background/          # CDP interception, file/text masking calls
+│   ├── managed_schema.json      # Enterprise policy: protectionLocked
+│   ├── src/background/          # CDP interception, file/text masking calls, state.js
+│   ├── src/content/             # file-interceptor, demask (display only)
 │   ├── tests/                   # node --test (mock chrome/CDP)
 │   └── src/popup/               # Popup UI (stats, attach status)
-├── cloud-backend/               # Cloud control plane (API-key auth, org-scoped; not yet called by local backend)
-├── dashboard/                   # Admin dashboard (talks to cloud backend with an API key)
+├── cloud-backend/               # Cloud control plane: policies, audit, tenant config, devices (Alembic, PostgreSQL-ready)
+├── dashboard/                   # Admin dashboard: activity, policies + history, devices, detection settings, admin log
+├── installer/                   # Windows / macOS / Linux service installers for the local backend
+├── scripts/                     # fetch_model.py (pinned Tier 2 model), dev setup
 ├── eval/                        # Evaluation sets + scoring scripts
-├── docs/                        # Architecture, ADRs
+├── docs/                        # Architecture, ADRs, deployment guide
 └── pyproject.toml               # Root project config (uv)
 ```
 
@@ -437,7 +484,10 @@ AI_Privacy_Gateway/
 ## Limitations (Stated Honestly)
 
 - **Response demasking is display-only.** The extension restores real values in the ChatGPT/Gemini page (via `/api/mapping`) as replies stream in; values that are not stored for restoring (e.g. `[REDACTED:CREDIT_CARD]`) stay redacted, and the restored text lives in the page's DOM.
-- **No OCR.** Scanned PDFs and images are rejected (fail-closed), not silently passed through.
+- **No OCR.** Scanned PDFs and standalone images are rejected (fail-closed). Images inside Word/Excel are not read, so their content is not masked; `DLP_IMAGE_POLICY=block` refuses such files. Charts and SmartArt are blocked rather than read.
+- **Legacy Office files** (`.doc`, `.xls`) are not supported and are refused.
+- **Chrome shows a "debugging" bar** while Doppel is attached; that is the cost of network-layer interception.
+- **Not yet verified here:** real Tier 2 speed on your hardware, the installers on Windows/macOS, and a real Word/Excel file with charts or SmartArt. A signed installer package needs your code-signing certificates.
 - **Cloud sync is opt-in.** With `CLOUD_URL` and `CLOUD_ENROLL_KEY` set, the local backend enrolls, heartbeats, pushes audit metadata and pulls policies using a per-device token; the admin key stays with the dashboard.
 - **ChatGPT and Gemini only.** Other sites (Claude, etc.) are future work.
 - **No ONNX.** GLiNER2 runs in PyTorch; measure speed on your hardware with `benchmark_tier2.py`.
@@ -459,4 +509,4 @@ Graduation project — 5-person team, 4-week development window.
 | Vault, security, API | Fernet vault, token auth, endpoints |
 | Browser extension | CDP interception, popup UI |
 | Routing table + policy | Per-label actions, cloud policy sync |
-| Cloud backend + infrastructure | Control plane (policies, audit, tenant config, endpoints) and dashboard |
+| Cloud backend + infrastructure | Control plane (policies, audit, tenant config, devices) and dashboard |
