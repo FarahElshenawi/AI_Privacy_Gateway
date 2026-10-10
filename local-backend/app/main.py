@@ -89,11 +89,11 @@ async def health():
 async def get_token(request: Request):
     """Get the install token for extension setup.
 
-    This endpoint is unauthenticated because the extension needs to
-    get the token before it can make authenticated requests.
-    In production, this would be restricted to localhost only.
+    No token is needed to ask for it (the extension has none yet), so access is limited instead:
+    check_origin allows only a loopback peer, a loopback Host header, and either no Origin
+    (curl, the extension's service worker) or the pinned extension's origin.
     """
-    check_origin(request)      # loopback clients only (the full extension handshake is a separate task)
+    check_origin(request)
     return {"token": get_install_token()}
 
 
