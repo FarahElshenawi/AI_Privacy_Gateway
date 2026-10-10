@@ -17,7 +17,7 @@ import pytest
 
 from app import cloud_sync
 from app.cloud_sync import (
-    CloudAuditHandler, _CloudAuditBuffer,
+    _CloudAuditBuffer,
     _audit_buffer, _pull_and_apply_policies, status,
 )
 from dlp_core.policy import Action, DEFAULT_ACTIONS
@@ -45,65 +45,34 @@ def test_start_is_noop_when_sync_disabled(monkeypatch):
     assert len(cloud_sync._threads) == 0
 
 
-# --- CloudAuditHandler parses records --------------------------------------
+# --- record_event: structured, metadata-only ----------------------------------
 
-def test_audit_handler_parses_routing_decision():
-    """The handler must parse a routing_decision log line into a cloud audit event."""
-    buf = _CloudAuditBuffer(max_size=100)
-    handler = CloudAuditHandler()
-    # Inject our buffer so the handler writes to it
-    with patch.object(cloud_sync, "_audit_buffer", buf):
-        rec = logging.LogRecord(
-            name="privacy_gateway.audit", level=logging.INFO, pathname="", lineno=0,
-            msg="routing_decision entity_type=PERSON action=FAKER strategy=PSEUDONYMIZE "
-                "storage=STORE_FOR_DEMASKING risk_level=HIGH entity_category=PII "
-                "rule=policy:PERSON timestamp=2026-01-01T00:00:00+00:00 "
-                "conversation_id=conv123 value_length=5",
-            args=None, exc_info=None,
-        )
-        handler.emit(rec)
-        events = buf.drain()
-        assert len(events) == 1
-        assert events[0]["event_type"] == "mask"
-        assert events[0]["entity_types"] == {"PERSON": 1}
-        assert events[0]["entity_count"] == 1
-        assert events[0]["conversation_id"] == "conv123"
+def test_record_event_is_structured_and_metadata_only():
+    cloud_sync._audit_buffer.drain()
+    cloud_sync.record_event("mask", entity_types={"person": 2, "EMAIL": 1}, latency_ms=12.7, conversation_id="conv123")
+    ev = cloud_sync._audit_buffer.drain()[0]
+    assert ev == {"event_type": "mask", "entity_types": {"PERSON": 2, "EMAIL": 1}, "entity_count": 3,
+                  "conversation_id": "conv123", "latency_ms": 12}
 
 
-def test_audit_handler_parses_demask_event():
-    buf = _CloudAuditBuffer(max_size=100)
-    handler = CloudAuditHandler()
-    with patch.object(cloud_sync, "_audit_buffer", buf):
-        rec = logging.LogRecord(
-            name="privacy_gateway.audit", level=logging.INFO, pathname="", lineno=0,
-            msg="demask_event event_type=demask conversation_id=conv456 "
-                "replacements_made=3 text_length=150 timestamp=2026-01-01T00:00:00+00:00",
-            args=None, exc_info=None,
-        )
-        handler.emit(rec)
-        events = buf.drain()
-        assert len(events) == 1
-        assert events[0]["entity_count"] == 3
-        assert events[0]["conversation_id"] == "conv456"
+def test_record_event_sanitises_and_never_raises():
+    cloud_sync._audit_buffer.drain()
+    cloud_sync.record_event("bogus")                                       # unknown type: ignored
+    cloud_sync.record_event("mask", entity_types={"bad label!": 1}, conversation_id="has space")
+    cloud_sync.record_event("mask", entity_types={"X": "not-a-number"})    # junk: swallowed
+    ev = cloud_sync._audit_buffer.drain()
+    assert len(ev) == 1 and ev[0]["entity_types"] == {"UNKNOWN": 1} and ev[0]["conversation_id"] is None
 
 
-def test_audit_handler_never_includes_real_value():
-    """Even if the log line somehow contained a value, the handler must not propagate it."""
-    buf = _CloudAuditBuffer(max_size=100)
-    handler = CloudAuditHandler()
-    sensitive = "real@example.com"
-    with patch.object(cloud_sync, "_audit_buffer", buf):
-        rec = logging.LogRecord(
-            name="privacy_gateway.audit", level=logging.INFO, pathname="", lineno=0,
-            msg=f"routing_decision entity_type=EMAIL action=FAKER conversation_id=c value_length=17",
-            args=None, exc_info=None,
-        )
-        handler.emit(rec)
-        events = buf.drain()
-        for e in events:
-            # The cloud event contains only metadata — no value, no text
-            for v in e.values():
-                assert sensitive not in str(v)
+def test_aggregate_sums_counts_averages_latency_and_keeps_every_fail_closed():
+    evs = [{"event_type": "mask", "entity_types": {"EMAIL": 1}, "entity_count": 1, "conversation_id": "c", "latency_ms": 10},
+           {"event_type": "mask", "entity_types": {"EMAIL": 2}, "entity_count": 2, "conversation_id": "c", "latency_ms": 30},
+           {"event_type": "fail_closed", "entity_types": {"POLICY_BLOCK": 1}, "entity_count": 1, "conversation_id": "c"},
+           {"event_type": "fail_closed", "entity_types": {"POLICY_BLOCK": 1}, "entity_count": 1, "conversation_id": "c"}]
+    out = cloud_sync._aggregate(evs)
+    mask = next(e for e in out if e["event_type"] == "mask")
+    assert mask["entity_count"] == 3 and mask["entity_types"] == {"EMAIL": 3} and mask["latency_ms"] == 20
+    assert sum(e["event_type"] == "fail_closed" for e in out) == 2          # the dashboard counts rows
 
 
 # --- Buffer behavior --------------------------------------------------------
@@ -203,17 +172,6 @@ def test_failed_flush_keeps_events_for_retry(monkeypatch):
     cloud_sync._flush_audit()
     assert len(cloud_sync._audit_buffer) == 0
     assert sum(e["entity_count"] for e in sent) == 3                      # nothing lost, aggregated
-
-
-def test_demask_event_is_not_counted_as_mask():
-    import logging
-    cloud_sync._audit_buffer.drain()
-    rec = logging.LogRecord("privacy_gateway.audit", logging.INFO, "", 0,
-                            "demask_event event_type=demask conversation_id=c1 replacements_made=2 text_length=10 timestamp=t",
-                            None, None)
-    cloud_sync.CloudAuditHandler().emit(rec)
-    ev = cloud_sync._audit_buffer.drain()[0]
-    assert ev["event_type"] == "demask" and ev["entity_count"] == 2
 
 
 def test_bad_conversation_id_is_dropped_not_sent():

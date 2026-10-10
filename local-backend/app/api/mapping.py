@@ -19,6 +19,7 @@ import time
 from collections import defaultdict, deque
 from typing import Optional
 
+from app import cloud_sync
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
@@ -84,4 +85,5 @@ def get_mapping(request: Request, body: MappingRequest, authorization: str | Non
     if entries:   # delivering real values is a demask-class event: audit it (counts only)
         emit_demask_audit(build_demask_audit_record(
             conversation_id=body.conversation_id, replacements_made=len(entries), text_length=0))
+        cloud_sync.record_event("demask", entity_count=len(entries), conversation_id=body.conversation_id)
     return MappingResponse(version=version, changed=True, entries=entries)

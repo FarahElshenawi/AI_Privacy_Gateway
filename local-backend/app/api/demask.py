@@ -15,6 +15,7 @@ import re
 import time
 from collections import defaultdict, deque
 
+from app import cloud_sync
 from fastapi import APIRouter, HTTPException, Request, Header
 from pydantic import BaseModel, field_validator
 
@@ -96,6 +97,8 @@ def demask_pii(
         replacements_made=count,
         text_length=len(body.text),
     ))
+
+    cloud_sync.record_event("demask", entity_count=count, conversation_id=body.conversation_id)
 
     return DemaskResponse(
         restored_text=restored_text,
