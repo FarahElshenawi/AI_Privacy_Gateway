@@ -21,13 +21,14 @@ model can't pile up threads. Run models that can hang in a subprocess if you nee
 """
 from __future__ import annotations
 
+import functools
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Protocol, Sequence, runtime_checkable
+from typing import Any, Optional, Protocol, Sequence, runtime_checkable
 
 from .merge import MergedSpan, MergeEngine
 from .span import Span
@@ -35,8 +36,11 @@ from .span import Span
 
 @runtime_checkable
 class Detector(Protocol):
-    name: str
-    labels: frozenset[str]
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def labels(self) -> frozenset[str]: ...
 
     def scan(self, text: str) -> Sequence[Span]: ...
 
@@ -147,7 +151,7 @@ class DetectionPipeline:
         if len(text) > self._max_len:
             raise ValueError(f"text longer than {self._max_len}; chunk it first")
         t0 = time.perf_counter()
-        launched: list[tuple[DetectorSpec, Optional[Future], float, float]] = []
+        launched: list[tuple[DetectorSpec, Future, float, float]] = []
         reports: dict[str, DetectorReport] = {}
 
         for spec in self._specs:
@@ -172,7 +176,8 @@ class DetectionPipeline:
                 if getattr(det, "supports_deadline", False):
                     # cooperative: the detector stops between windows once the budget is spent,
                     # so an abandoned call frees the model instead of burning CPU to the end.
-                    fut = self._pool.submit(det.scan, text, deadline=started_at + budget)
+                    scan_with_deadline: Any = det.scan
+                    fut = self._pool.submit(functools.partial(scan_with_deadline, text, deadline=started_at + budget))
                 else:
                     fut = self._pool.submit(det.scan, text)
             launched.append((spec, fut, started_at, budget))
@@ -212,7 +217,7 @@ class DetectionPipeline:
     @staticmethod
     def _validate(out: object, n: int) -> tuple[bool, str]:
         try:
-            items = list(out)  # type: ignore[arg-type]
+            items = list(out)  # type: ignore[call-overload]
         except TypeError:
             return False, "NotIterable"
         for sp in items:

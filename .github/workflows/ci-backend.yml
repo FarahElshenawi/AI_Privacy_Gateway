@@ -2,34 +2,39 @@ name: CI - Backend
 on:
   push:
     branches: [develop, main]
-    paths: ["local-backend/**", "pyproject.toml"]
+    paths: ["local-backend/**", "pyproject.toml", ".github/workflows/ci-backend.yml"]
   pull_request:
-    paths: ["local-backend/**", "pyproject.toml"]
+    paths: ["local-backend/**", "pyproject.toml", ".github/workflows/ci-backend.yml"]
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     defaults:
       run:
+        shell: bash
         working-directory: local-backend
+    env:
+      DLP_WARM_TIER2: "false"
+      DLP_VAULT_PERSIST: "false"
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
         with:
-          enable-cache: true
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Install dependencies
+          python-version: "3.12"
+          cache: pip
+      - name: Install
         run: |
-          uv venv
-          source .venv/bin/activate
-          uv pip install -e "../[dev]"
-
-      - name: Run tests
-        run: |
-          source .venv/bin/activate
-          pytest dlp_core/ tests/ -v
+          python -m pip install --upgrade pip
+          pip install -e "../[dev]" ruff mypy
+      - name: Lint (ruff)
+        run: ruff check . --config ../pyproject.toml
+      - name: Type check (mypy)
+        run: mypy app dlp_core --config-file ../pyproject.toml
+      - name: Tests
+        run: pytest dlp_core/ tests/ -v

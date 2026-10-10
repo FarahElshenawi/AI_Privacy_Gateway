@@ -121,13 +121,13 @@ class ExcelHandler:
                     cell.comment = Comment(cell.comment.text, "user")        # author names are PII too
                 if cell.hyperlink is not None:
                     for attr in ("target", "location", "tooltip", "display"):
-                        k = ("hl", si, cell.coordinate, attr)
+                        k = ("hl", si, cell.coordinate, attr)  # type: ignore[assignment]
                         if k in edited:
                             setattr(cell.hyperlink, attr, result.masked[k])
             for name in _HF:
                 hf = getattr(ws, name, None)
                 for part in ("left", "center", "right"):
-                    k = ("hf", si, name, part)
+                    k = ("hf", si, name, part)  # type: ignore[assignment]
                     if k in edited:
                         setattr(getattr(hf, part), "text", result.masked[k])
         for attr in _PROPS:

@@ -286,7 +286,7 @@ def internal_url_valid(value: str, suffixes: Iterable[str]) -> bool:
         host = urlsplit(value).hostname
     except ValueError:
         return False
-    return bool(host) and is_internal_host(host, suffixes)
+    return host is not None and bool(host) and is_internal_host(host, suffixes)
 
 
 def bare_internal_hostname_valid(host: str, suffixes: Iterable[str], tenant: Iterable[str] = ()) -> bool:

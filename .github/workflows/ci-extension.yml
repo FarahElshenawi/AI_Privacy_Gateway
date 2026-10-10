@@ -1,12 +1,23 @@
 name: CI - Extension
 on:
   pull_request:
-    paths: ["extension/**"]
+    paths: ["extension/**", ".github/workflows/ci-extension.yml"]
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+        working-directory: extension
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: "20" }
-      - run: cd extension && npm install && npm test
+      - run: npm install
+      - run: npm run lint
+      - run: npm test

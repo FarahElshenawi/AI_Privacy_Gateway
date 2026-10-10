@@ -44,11 +44,19 @@ local-backend/eval/*
 local-backend/models/*.onnx
 local-backend/models/*.onnx.data
 
-local-backend/dlp_core/eval/holdout_v1.json
-local-backend/dlp_core/eval/
-eval/
 next/
 # --- Next.js / local DBs ---
 .next/
 website/.next/
 cloud-backend/*.db
+
+# --- Evaluation: source and the hold-out's sha256 are committed (local-backend/dlp_core/eval/holdout_v1.sha256).
+# The hold-out file itself is regenerated deterministically (python -m dlp_core.eval.make_holdout) and checked
+# against that hash: its synthetic fake secrets trip GitHub push protection, so the .jsonl stays untracked. ---
+local-backend/dlp_core/eval/out/
+local-backend/dlp_core/eval/__pycache__/
+
+# --- Secrets: never commit signing keys or certificates ---
+*.pem
+*.key
+*.p12
