@@ -11,14 +11,15 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { api, type AuditStats, type AuditEvent } from "../api/client";
+import { api, type AuditStats, type AuditEvent, type Timeseries } from "../api/client";
 import { KpiCard } from "../components/KpiCard";
 import { ShieldCheck, Ban, Activity, Clock } from "lucide-react";
-import { formatNumber, formatTime } from "../lib/utils";
+import { formatNumber, formatTime, parseUtc } from "../lib/utils";
 
 export function Overview() {
   const [stats, setStats] = useState<AuditStats | null>(null);
   const [recent, setRecent] = useState<AuditEvent[]>([]);
+  const [series, setSeries] = useState<Timeseries | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,13 +27,15 @@ export function Overview() {
     let cancelled = false;
     const load = async () => {
       try {
-        const [s, r] = await Promise.all([
+        const [s, r, ts] = await Promise.all([
           api.auditStats(24, 1),
           api.listAudit({ limit: 8 }),
+          api.auditTimeseries(24, "hour"),
         ]);
         if (cancelled) return;
         setStats(s);
         setRecent(r);
+        setSeries(ts);
         setError(null);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
@@ -84,21 +87,11 @@ export function Overview() {
         }))
     : [];
 
-  // Build a fake-but-stable time series for masked events (the stats endpoint
-  // returns aggregates, not buckets, so we approximate using recent events).
-  // The /api/audit endpoint returns recent events; we bucket by hour.
-  const buckets: { hour: string; value: number }[] = [];
-  const now = Date.now();
-  for (let i = 11; i >= 0; i--) {
-    const t = new Date(now - i * 60 * 60 * 1000);
-    buckets.push({ hour: `${t.getHours()}h`, value: 0 });
-  }
-  recent.forEach((e) => {
-    if (e.event_type !== "mask") return;
-    const t = new Date(e.timestamp).getHours();
-    const idx = buckets.findIndex((b) => parseInt(b.hour) === t);
-    if (idx >= 0) buckets[idx].value += 1;
-  });
+  // Real hourly counts from /api/audit/timeseries (zero-filled, UTC buckets shown in local time).
+  const buckets = (series?.points ?? []).map((p) => ({
+    hour: `${parseUtc(p.t).getHours()}h`,
+    value: (p.by_event_type.mask || 0) + (p.by_event_type.file || 0),
+  }));
 
   if (loading) {
     return (
@@ -175,7 +168,7 @@ export function Overview() {
             <div>
               <span className="eyebrow">Activity</span>
               <h3 className="mt-1 text-[15px] font-semibold text-[var(--ink)]">
-                Masked events per hour
+                Masked prompts and files per hour
               </h3>
             </div>
             <span className="status-dot" />

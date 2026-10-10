@@ -121,6 +121,7 @@ class TenantConfig(Base):
     org_id = Column(Integer, ForeignKey("organizations.id"), primary_key=True)
     deny_terms = Column(Text, nullable=False, default="[]")        # JSON list of strings
     tenant_domains = Column(Text, nullable=False, default="[]")    # JSON list of hostnames
+    image_policy = Column(String(16), nullable=False, default="default", server_default="default")
     version = Column(Integer, nullable=False, default=1)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -202,8 +203,10 @@ def _migrate(engine) -> None:
     (create_all never alters existing tables). PostgreSQL uses Alembic instead."""
     from sqlalchemy import inspect, text
     insp = inspect(engine)
-    cols = {t: {c["name"] for c in insp.get_columns(t)} for t in ("organizations", "endpoints")}
+    cols = {t: {c["name"] for c in insp.get_columns(t)} for t in ("organizations", "endpoints", "tenant_config")}
     with engine.begin() as conn:
+        if "image_policy" not in cols["tenant_config"]:
+            conn.execute(text("ALTER TABLE tenant_config ADD COLUMN image_policy VARCHAR(16) NOT NULL DEFAULT 'default'"))
         if "enroll_key" not in cols["organizations"]:
             conn.execute(text("ALTER TABLE organizations ADD COLUMN enroll_key VARCHAR(64)"))
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_organizations_enroll_key ON organizations (enroll_key)"))
