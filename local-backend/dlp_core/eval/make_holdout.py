@@ -309,7 +309,6 @@ NEGATIVES = [
 
 
 def main(out_dir: Path) -> None:
-    rng.seed(SEED)          # the generator is deterministic on every call, not just the first in a process
     cases: list[dict] = []
     for i, (tpl, label, gen, tier, tags) in enumerate(ENTITY_CASES):
         v = gen()
