@@ -14,7 +14,8 @@ import zipfile
 
 from docx import Document
 
-from app.multimodal.docx_utils import iter_paragraphs, paragraph_runs
+from app.multimodal.docx_utils import ALT_ATTRS, iter_alt_elements, iter_paragraphs, paragraph_runs
+from app.multimodal.ooxml import package_blockers
 from dlp_core.segments import Segment, SegmentMaskResult, apply_edits_to_runs
 
 from .base import Extraction
@@ -74,6 +75,9 @@ class WordHandler:
 
     def extract(self, path: str) -> Extraction:
         blockers, warnings, media = _inspect_package(path)
+        more_b, more_w = package_blockers(path, "word")
+        blockers = sorted(set(blockers) | set(more_b))
+        warnings = warnings + more_w
         try:
             doc = Document(path)
         except Exception as exc:  # noqa: BLE001
@@ -81,6 +85,11 @@ class WordHandler:
         ctx = _table_headers(doc)
         segs = [Segment(("p", i), "".join(r.text for r in paragraph_runs(p)), ctx.get(p._p, ""))
                 for i, p in enumerate(iter_paragraphs(doc))]
+        for ai, el in enumerate(iter_alt_elements(doc)):          # alt text, titles and picture file names
+            for attr in ALT_ATTRS:
+                v = el.get(attr)
+                if v:
+                    segs.append(Segment(("alt", ai, attr), v))
         for rid, rel in doc.part.rels.items():
             if rel.is_external and rel.reltype.endswith("/hyperlink"):
                 segs.append(Segment(("rel", rid), rel.target_ref))
@@ -100,6 +109,10 @@ class WordHandler:
             for run, old, new in zip(runs, run_texts, apply_edits_to_runs(run_texts, edits)):
                 if new != old:                       # rewrite only touched runs (keeps drawings/fields in others)
                     run.text = new
+        for ai, el in enumerate(iter_alt_elements(doc)):
+            for attr in ALT_ATTRS:
+                if result.edits.get(("alt", ai, attr)):
+                    el.set(attr, result.masked[("alt", ai, attr)])
         for rid, rel in doc.part.rels.items():
             if ("rel", rid) in result.edits and result.edits[("rel", rid)]:
                 rel._target = result.masked[("rel", rid)]
