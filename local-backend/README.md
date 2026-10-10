@@ -7,7 +7,7 @@ residual scanner that fail-closes if any PII survives.
 ## Layout
 
 ```
-dlp_core/                              ← DETECTION ENGINE (pure Python, 142 tests)
+dlp_core/                              ← DETECTION ENGINE (pure Python)
 ├── span.py                            # Span contract (start, end, label, score, source, validated)
 ├── policy.py                          # Label → Action (REDACT / FAKER / KEEP; unknown = REDACT)
 ├── merge.py                           # MergeEngine (unions overlaps, strictest action wins)
@@ -23,9 +23,8 @@ dlp_core/                              ← DETECTION ENGINE (pure Python, 142 te
 │   ├── registry.py                    # Single wiring point (add entity = one line)
 │   └── config.py                     # Tier1Config (tenant domains, deny-terms, phone switch)
 ├── tier2/                            # Semantic (GLiNER2-PII)
-│   ├── engine.py                      # Tier2Engine — PyTorch + ONNX dual mode
-│   ├── config.py                     # Tier2Config (model, labels, threshold, chunking)
-│   └── export_onnx.py               # One-time ONNX export script
+│   ├── engine.py                      # Tier2Engine — PyTorch, windowed scan with a time budget
+│   └── config.py                     # Tier2Config (model, labels, threshold, chunking)
 └── eval/                             # Evaluation harness
     ├── metrics.py                    # Char-level leak recall, strict/overlap F1, CI
     ├── run.py                         # Runner (one command reproduces the report)
@@ -40,13 +39,11 @@ app/                                   ← FASTAPI LAYER (thin wrappers around d
 │   ├── detect.py                     # POST /api/detect → DetectionPipeline (no masking)
 │   └── process_file.py               # POST /api/process_file → multimodal → Pipeline
 ├── pipeline/
-│   ├── engine.py                     # Shared singleton: wires dlp_core for FastAPI
-│   ├── chunker.py                    # Sentence-boundary chunking (for Tier 2 long text)
-│   └── decision.py                  # SLM adjudication stub (fail-closed: redacts)
+│   └── engine.py                     # Shared singleton: wires dlp_core for FastAPI
 ├── multimodal/                       # File parsers + reconstructors
-│   ├── pipeline.py                   # extract → detect → mask → reconstruct
-│   ├── parsers/                      # PDF, Word, Excel, text
-│   └── reconstructors/               # offset-based per format
+│   ├── pipeline.py                   # extract → detect → mask → write → verify
+│   ├── file_type_detector.py         # type from bytes (zip layout, magic), not the file name
+│   └── handlers/                     # PDF, Word, Excel, text/CSV: extract segments, write edits in place
 └── security/                         # Per-install token, origin check
 ```
 
@@ -189,23 +186,9 @@ for context-dependent PII that Tier 1 can't catch.
 | government_id, passport_number, drivers_license_number | `GOVERNMENT_ID` etc. | REDACT |
 | sensitive_date | `SENSITIVE_DATE` | FAKER |
 
-**Two inference modes:**
-
-| Mode | How | Speed | Setup |
-|------|-----|-------|-------|
-| **PyTorch** (default) | `GLiNER2.from_pretrained()` + `extract_entities_long()` | ~50-200ms | `pip install gliner2 torch transformers` |
-| **ONNX** (optional) | `onnxruntime.InferenceSession()` | 2-4x faster | Run export first (see below) |
-
-**ONNX export (one-time):**
-```bash
-python -m dlp_core.tier2.export_onnx
-# Creates: models/gliner2_pii.onnx
-```
-
-Then set the env variable or hardcode the path in `app/pipeline/engine.py`:
-```bash
-export GLINER_ONNX_PATH=models/gliner2_pii.onnx
-```
+**Inference:** PyTorch only (`GLiNER2.from_pretrained()` + `extract_entities_long()`; `pip install gliner2 torch transformers`).
+ONNX export was tried and does not work for this model (dynamic control flow), so it is not offered. Speed depends
+on your CPU: run `python benchmark_tier2.py` and set `DLP_TIER2_PER_KCHAR_S` from the result.
 
 **Threshold:** 0.3 (low = high recall). DLP prioritizes recall — missed PII = data leak.
 
@@ -313,20 +296,13 @@ pip install -r requirements.txt
 pytest dlp_core/ tests/ -v
 ```
 
-```
-142 passed in 3.2s
+```bash
+pytest dlp_core tests            # whole local backend
 ```
 
-| Test file | Tests | What it covers |
-|-----------|-------|----------------|
-| `dlp_core/test_core.py` | 35 | Merge invariants, offset masking, vault bijection, fuzz |
-| `dlp_core/tier1/test_tier1.py` | 48 | All 24 entity types, boundary safety, obfuscation, adversarial input |
-| `dlp_core/test_detection.py` | 11 | Pipeline: timeout, stuck detector, concurrency, fail-closed |
-| `dlp_core/eval/test_eval.py` | 4 | Harness: metrics on hand-made cases |
-| `tests/test_api.py` | 10 | API endpoint integration |
-| `tests/test_chunker.py` | 18 | Sentence-boundary chunking |
-| `tests/test_security.py` | 15 | Token verification, origin check |
-| `tests/test_pdf_reconstructor.py` | 1 | PDF in-place redaction |
+Main areas: `dlp_core/` (merge, masking, vault, detection pipeline, Tier 1/Tier 2, eval harness, hold-out hash),
+`tests/` (API, security, multimodal files, cloud sync, audit events, policy API). Counts change often, so run
+the command rather than trusting a number here.
 
 ## Configuration
 
@@ -352,8 +328,6 @@ from dlp_core.tier2 import Tier2Config
 config = Tier2Config(
     model_name="fastino/gliner2-privacy-filter-PII-multi",
     threshold=0.3,                        # low = high recall
-    use_onnx=False,                       # True after running export_onnx.py
-    onnx_path=None,                       # "models/gliner2_pii.onnx"
     chunk_size=384,                       # GLiNER2 token window
     chunk_overlap=64,
     enabled=True,

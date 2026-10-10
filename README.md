@@ -57,7 +57,7 @@ User types prompt / uploads file in ChatGPT
 │  LOCAL BACKEND (trusted)            ▼                                 │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  dlp_core — Detection Engine (pure Python, 220 tests)          │   │
+│  │  dlp_core — Detection Engine (pure Python)          │   │
 │  │                                                                │   │
 │  │  ┌─────────────────────────────────────────────────────────┐  │   │
 │  │  │  DetectionPipeline (parallel tiers, timeouts, degraded) │  │   │
@@ -230,7 +230,7 @@ Uses **GLiNER2-PII** (`fastino/gliner2-privacy-filter-PII-multi`, 205M params) f
 
 GLiNER2 won on F1, leak recall, and PERSON F1. All labels met target threshold — no fine-tuning needed.
 
-**Inference mode:** PyTorch (ONNX export failed — model architecture has dynamic control flow that `torch.onnx.export` can't trace).
+**Inference mode:** PyTorch only (ONNX export does not work for this model: dynamic control flow).
 
 **Threshold:** 0.3 (low = high recall — missed PII = data leak). For production: 0.75 (fewer false positives, 0.986 leak recall).
 
@@ -351,26 +351,12 @@ cd local-backend
 uv run pytest dlp_core/ tests/ -v
 ```
 
-```
-220 tests pass (with stub models; 2 require real gliner2 install)
-```
+Tests that need the real gliner2 model are skipped when it is not installed.
 
-| Test file | Tests | What it covers |
-|-----------|-------|----------------|
-| `dlp_core/test_core.py` | 35 | Merge invariants, offset masking, vault bijection, fuzz |
-| `dlp_core/tier1/test_tier1.py` | 48 | All 24 entity types, boundary safety, obfuscation, adversarial input |
-| `dlp_core/test_detection.py` | 11 | Pipeline: timeout, stuck detector, concurrency, fail-closed |
-| `dlp_core/test_tier2.py` | 9 | Offset verification, every-occurrence masking, warmup, availability |
-| `dlp_core/test_segments.py` | 8 | SegmentMasker: batch, clip, offset edits |
-| `dlp_core/test_residual.py` | 4 | Independent scanner: issuer prefix, no text in leaks |
-| `dlp_core/test_bakeoff.py` | 7 | Bake-off orchestration, threshold sweep, kill test |
-| `dlp_core/eval/test_eval.py` | 4 | Metrics: char-level leak recall, F1, confidence intervals |
-| `tests/test_api.py` | 10 | API endpoint integration |
-| `tests/test_mask_coverage.py` | 8 | Coverage reporting, strict mode, degraded handling |
-| `tests/test_multimodal.py` | 12 | PDF, Word, Excel, text — offset masking per segment |
-| `tests/test_process_file_api.py` | 4 | File upload endpoint |
-| `tests/test_security.py` | 15 | Token verification, origin check |
-| `tests/test_chunker.py` | 18 | Sentence-boundary chunking |
+Areas covered: merge/masking/vault invariants, Tier 1 and Tier 2, the detection pipeline, the evaluation harness and
+frozen hold-out hash, the API, security (token, origin, pinned extension ID), multimodal files, cloud sync and audit events.
+Run `pytest dlp_core tests` in `local-backend/` and `pytest` in `cloud-backend/`; per-file counts are not listed here because they drift.
+
 
 ---
 
@@ -404,7 +390,7 @@ Each candidate runs in its own subprocess (crash isolation). Thresholds swept of
 ```
 AI_Privacy_Gateway/
 ├── local-backend/               # FastAPI backend + detection engine
-│   ├── dlp_core/                # Pure Python detection engine (220 tests)
+│   ├── dlp_core/                # Pure Python detection engine 
 │   │   ├── span.py              # Span contract (start, end, label, score, source, validated)
 │   │   ├── policy.py            # Label → Action (unknown = REDACT, fail-closed)
 │   │   ├── merge.py             # MergeEngine (union overlaps, strictest wins)
@@ -454,7 +440,7 @@ AI_Privacy_Gateway/
 - **No OCR.** Scanned PDFs and images are rejected (fail-closed), not silently passed through.
 - **Cloud sync is opt-in.** With `CLOUD_URL` and `CLOUD_ENROLL_KEY` set, the local backend enrolls, heartbeats, pushes audit metadata and pulls policies using a per-device token; the admin key stays with the dashboard.
 - **ChatGPT and Gemini only.** Other sites (Claude, etc.) are future work.
-- **ONNX not working.** GLiNER2 uses PyTorch mode. ONNX export fails (dynamic control flow). PyTorch is fast enough for the demo.
+- **No ONNX.** GLiNER2 runs in PyTorch; measure speed on your hardware with `benchmark_tier2.py`.
 - **SpanMarker dropped.** PERSON kill test inconclusive (GLiNER2 at 0.953 F1, CI touches 0.97 but can't confirm). Dropped for simplicity.
 
 ---
@@ -472,5 +458,5 @@ Graduation project — 5-person team, 4-week development window.
 | Detection engine + evaluation | Tier 1 + Tier 2 + bake-off |
 | Vault, security, API | Fernet vault, token auth, endpoints |
 | Browser extension | CDP interception, popup UI |
-| Routing table + SLM | Policy + adjudicator (stub) |
-| Cloud backend + infrastructure | Control plane (future work) |
+| Routing table + policy | Per-label actions, cloud policy sync |
+| Cloud backend + infrastructure | Control plane (policies, audit, tenant config, endpoints) and dashboard |
