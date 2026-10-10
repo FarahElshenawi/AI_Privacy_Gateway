@@ -13,22 +13,18 @@ from . import patterns as P
 from . import validators as V
 from .config import Tier1Config
 from .recognizers import (AwsSecretRecognizer, CardRecognizer, DenyTermRecognizer, IbanRecognizer,
-                          PatternRecognizer, Recognizer, RecoveryCodeRecognizer)
+                          PatternRecognizer, Recognizer, RecoveryCodeRecognizer, SshUserRecognizer)
 
 
 def _generic_secret_label(m: re.Match) -> str:
     return "CLOUD_SECRET" if "secret" in m.group("k").lower() else "API_KEY"
 
 
-def _entropy_validator(min_entropy: float):
-    return lambda v: V.shannon_entropy(v) >= min_entropy
-
-
 def _signature_recognizers() -> Iterator[PatternRecognizer]:
     for name, rx, min_entropy in P.API_KEY_SIGNATURES:
         yield PatternRecognizer(
             name=f"sig_{name}", labels=("API_KEY",), pattern=re.compile(rx),
-            validator=_entropy_validator(min_entropy),
+            validator=(lambda v, me=min_entropy: V.shannon_entropy(v) >= me),
             hard_evidence=True, score=0.98,
         )
 
@@ -125,6 +121,16 @@ def build_default_recognizers(cfg: Tier1Config) -> list[Recognizer]:
           label_fn=_generic_secret_label, validator=lambda v: V.secret_value_ok(v, 3.2, 16) and not V.jwt_valid(v), score=0.8),
         AwsSecretRecognizer(),
         RecoveryCodeRecognizer(),
+        # ---- cue-anchored secrets and credentials added after the tier-2 fine-tuning evaluation ----
+        R("seed_phrase", ("SECRET",), P.SEED_PHRASE, group="v", anchored=True,
+          validator=V.seed_words_valid, score=0.92),
+        R("seed_token", ("SECRET",), P.SEED_TOKEN, group="v", anchored=True,
+          validator=V.seed_token_ok, score=0.85),
+        R("password_intl", ("PASSWORD",), P.PASSWORD_INTL, group="v", anchored=True,
+          validator=V.intl_password_ok, score=0.85),
+        R("login_pair", ("PASSWORD",), P.LOGIN_PAIR, group="v", anchored=True,
+          validator=V.login_secret_ok, score=0.85),
+        SshUserRecognizer(),
     ]
 
     # ---- tenant deny-terms ---------------------------------------------------------------
