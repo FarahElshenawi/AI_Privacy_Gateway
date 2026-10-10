@@ -59,6 +59,14 @@ backend reports `safe_to_send: false`, unsupported file (image, scanned PDF, unk
 file over 50 MB — the request is **blocked** (`Fetch.failRequest`), never forwarded unmasked.
 Degraded coverage (e.g. the name model still warming up) is surfaced in the popup.
 
+## Staying protected (restarts, detaches, admin lock)
+
+Chrome stops the MV3 service worker after about 30 s idle and may drop the debugger (DevTools opening, another extension). Doppel copes with both:
+
+- **Restarts:** per-tab queues (masked upload names, the authorizations for browser-masked files, Gemini upload names, pending conversation ids) are kept in `chrome.storage.session`: memory only, cleared when the browser closes, metadata only (never file bytes or text). A restarted worker reloads them before it judges the next request.
+- **Re-attach:** when the debugger is detached, Doppel re-attaches at once (up to 3 tries), and also when a chat tab is activated or its content script talks to the worker. The exception is the person clicking Cancel on Chrome's debugging bar; that is respected (the badge shows `!`).
+- **Admin lock:** set the managed policy `protectionLocked: true` (schema in `managed_schema.json`; Chrome Enterprise / MDM, e.g. a `ExtensionSettings` + 3rd-party `policy` for the extension ID) and users cannot turn protection off; the popup switch is disabled and Cancel no longer stops re-attaching. Policy that cannot be read counts as not locked.
+
 ## Backend auth
 
 The worker fetches the per-install token from `GET /token` and sends it as

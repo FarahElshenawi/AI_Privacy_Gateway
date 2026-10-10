@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "protectionLocked": {
+      "title": "Lock protection on",
+      "description": "When true, users cannot turn Doppel protection off, and the debugger is re-attached automatically if it is dropped.",
+      "type": "boolean"
+    }
+  }
+}
