@@ -19,7 +19,6 @@ dependencies = [
     "sqlalchemy>=2.1.2",
     "gliner2>=2.0.0",
     "peft>=0.21.2",
-    "onnxscript>=0.7.2",
 ]
 
 [project.optional-dependencies]
@@ -52,7 +51,7 @@ packages = ["app"]
 
 
 [tool.ruff]
-extend-exclude = ["dashboard", "website", "extension", "eval", "export_onnx.py"]
+extend-exclude = ["dashboard", "website", "extension", "eval"]
 
 [tool.ruff.lint]
 # Real errors only (syntax, undefined names, unused imports/variables). Style rules are not enforced.
@@ -61,4 +60,4 @@ ignore = ["F401"]   # re-exports in __init__ files; unused imports are cleaned u
 
 [tool.mypy]
 ignore_missing_imports = true
-exclude = ["/eval/", "export_onnx\\.py$", "/tests/", "test_.*\\.py$"]
+exclude = ["/eval/", "/tests/", "test_.*\\.py$"]
