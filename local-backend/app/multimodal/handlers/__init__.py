@@ -12,7 +12,7 @@ def get_handler(file_type: str) -> FileHandler:
     cls = HANDLERS.get(file_type)
     if cls is None:
         raise ValueError(f"no handler for file type: {file_type}")
-    return cls()
+    return cls()  # type: ignore[return-value]
 
 
 __all__ = ["Extraction", "FileHandler", "HANDLERS", "get_handler", "zip_raw_scan"]

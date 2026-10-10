@@ -61,8 +61,8 @@ class MultimodalPipeline:
         want = _EXT.get(ftype)
         if want and src.suffix.lower() != want:
             with tempfile.TemporaryDirectory() as td:
-                res = self.process(shutil.copyfile(src, Path(td) / f"in{want}"),
-                                   Path(td) / f"out{want}", conversation_id)
+                res = self.process(str(shutil.copyfile(src, Path(td) / f"in{want}")),
+                                   str(Path(td) / f"out{want}"), conversation_id)
                 if res["success"]:
                     shutil.move(res["output_path"], out)
                     res["output_path"] = str(out)

@@ -20,11 +20,15 @@ def _generic_secret_label(m: re.Match) -> str:
     return "CLOUD_SECRET" if "secret" in m.group("k").lower() else "API_KEY"
 
 
+def _entropy_validator(min_entropy: float):
+    return lambda v: V.shannon_entropy(v) >= min_entropy
+
+
 def _signature_recognizers() -> Iterator[PatternRecognizer]:
     for name, rx, min_entropy in P.API_KEY_SIGNATURES:
         yield PatternRecognizer(
             name=f"sig_{name}", labels=("API_KEY",), pattern=re.compile(rx),
-            validator=(lambda v, me=min_entropy: V.shannon_entropy(v) >= me),
+            validator=_entropy_validator(min_entropy),
             hard_evidence=True, score=0.98,
         )
 

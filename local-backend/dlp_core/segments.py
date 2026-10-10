@@ -192,7 +192,8 @@ class SegmentMasker:
         return out
 
     def _batches(self, pieces: list[tuple[int, int, str, int]]):
-        batch, size = [], 0
+        batch: list[tuple[int, int, str, int]] = []
+        size = 0
         for p in pieces:
             if batch and size + len(p[2]) + 1 > self._max:
                 yield batch

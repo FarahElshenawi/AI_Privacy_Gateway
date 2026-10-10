@@ -71,7 +71,7 @@ try:
             if label == "DATE_OF_BIRTH": return _faker.date_of_birth().isoformat()
             return _faker.word()
 except ImportError:
-    _surrogate = None
+    _surrogate = None  # type: ignore[assignment]
 
 
 # ── Vault: PersistentVault by default (survives restarts), InMemoryVault if disabled. ──

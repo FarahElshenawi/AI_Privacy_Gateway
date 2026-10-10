@@ -18,7 +18,7 @@ from __future__ import annotations
 import ipaddress
 from dataclasses import dataclass
 from enum import Enum, IntEnum
-from typing import Mapping, Optional
+from typing import Iterable, Mapping, Optional
 
 
 # ─────────────────────────────────────────────────────────────

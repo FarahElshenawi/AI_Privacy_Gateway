@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable, Iterator, Optional, Protocol, Union, runtime_checkable
+from typing import Callable, Iterator, Optional, Protocol, Union, runtime_checkable, Sequence
 
 from ..span import Span
 from . import patterns as P
@@ -37,8 +37,11 @@ def _src(name: str) -> str:
 
 @runtime_checkable
 class Recognizer(Protocol):
-    name: str
-    labels: tuple[str, ...]
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def labels(self) -> Sequence[str]: ...
 
     def scan(self, text: str) -> Iterator[Span]: ...
 
