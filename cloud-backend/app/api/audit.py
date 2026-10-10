@@ -114,51 +114,67 @@ def list_audit(
 @router.get("/stats")
 def get_stats(hours: int = Query(24, ge=1, le=720),
               org: Organization = Depends(require_org), db=Depends(get_db)):
-    """Aggregated statistics for the dashboard.
-
-    Returns counts, entity type breakdown, latency, and fail-closed events.
-    """
+    """Aggregated statistics for the dashboard (computed in SQL; only the entity-type maps of
+    mask events are read back to sum the per-label breakdown)."""
     since = datetime.utcnow() - timedelta(hours=hours)
     in_window = (AuditEvent.org_id == org.id, AuditEvent.timestamp >= since)
+    mask_only = (*in_window, AuditEvent.event_type == "mask")
 
-    total_events = db.query(AuditEvent).filter(*in_window).count()
-
-    type_counts = (
-        db.query(AuditEvent.event_type, func.count(AuditEvent.id))
-        .filter(*in_window)
-        .group_by(AuditEvent.event_type)
-        .all()
-    )
-
-    fail_closed = db.query(AuditEvent).filter(*in_window, AuditEvent.event_type == "fail_closed").count()
-
-    latency_avg = (
-        db.query(func.avg(AuditEvent.latency_ms))
-        .filter(*in_window, AuditEvent.event_type == "mask", AuditEvent.latency_ms.isnot(None))
-        .scalar()
-    )
-
-    total_entities = (
-        db.query(func.sum(AuditEvent.entity_count))
-        .filter(*in_window, AuditEvent.event_type == "mask")
-        .scalar()
-    )
+    by_type = dict(db.query(AuditEvent.event_type, func.count(AuditEvent.id))
+                   .filter(*in_window).group_by(AuditEvent.event_type).all())
+    latency_avg = db.query(func.avg(AuditEvent.latency_ms)).filter(
+        *mask_only, AuditEvent.latency_ms.isnot(None)).scalar()
+    total_entities = db.query(func.sum(AuditEvent.entity_count)).filter(*mask_only).scalar()
 
     entity_breakdown: dict[str, int] = {}
-    for e in db.query(AuditEvent).filter(*in_window, AuditEvent.event_type == "mask").all():
-        if e.entity_types:
-            for etype, count in e.entity_types.items():
-                entity_breakdown[etype] = entity_breakdown.get(etype, 0) + count
+    for (types,) in db.query(AuditEvent.entity_types).filter(*mask_only, AuditEvent.entity_types.isnot(None)):
+        for etype, count in (types or {}).items():
+            entity_breakdown[etype] = entity_breakdown.get(etype, 0) + count
 
     return {
         "time_window_hours": hours,
-        "total_events": total_events,
-        "by_event_type": {k: v for k, v in type_counts},
-        "fail_closed_events": fail_closed,
-        "avg_latency_ms": round(latency_avg, 1) if latency_avg else None,
-        "total_entities_masked": total_entities or 0,
+        "total_events": sum(by_type.values()),
+        "by_event_type": by_type,
+        "fail_closed_events": by_type.get("fail_closed", 0),
+        "avg_latency_ms": round(float(latency_avg), 1) if latency_avg else None,
+        "total_entities_masked": int(total_entities or 0),
         "entity_type_breakdown": entity_breakdown,
     }
+
+
+@router.get("/timeseries")
+def get_timeseries(hours: int = Query(24, ge=1, le=720), bucket: Literal["hour", "day"] = "hour",
+                   org: Organization = Depends(require_org), db=Depends(get_db)):
+    """Event counts per time bucket and event type, for the activity chart. Buckets with no events
+    are filled with zeros so the chart has a continuous axis. Timestamps are UTC ('...Z')."""
+    now = datetime.utcnow()
+    since = now - timedelta(hours=hours)
+    if bucket == "day":
+        fmt_sqlite, fmt_pg, step = "%Y-%m-%dT00:00:00", "YYYY-MM-DD\"T\"00:00:00", timedelta(days=1)
+        floor = lambda d: d.replace(hour=0, minute=0, second=0, microsecond=0)  # noqa: E731
+    else:
+        fmt_sqlite, fmt_pg, step = "%Y-%m-%dT%H:00:00", "YYYY-MM-DD\"T\"HH24:00:00", timedelta(hours=1)
+        floor = lambda d: d.replace(minute=0, second=0, microsecond=0)  # noqa: E731
+    if db.bind.dialect.name == "postgresql":
+        key = func.to_char(AuditEvent.timestamp, fmt_pg)
+    else:
+        key = func.strftime(fmt_sqlite, AuditEvent.timestamp)
+    rows = (db.query(key.label("b"), AuditEvent.event_type, func.count(AuditEvent.id),
+                     func.coalesce(func.sum(AuditEvent.entity_count), 0))
+            .filter(AuditEvent.org_id == org.id, AuditEvent.timestamp >= since)
+            .group_by("b", AuditEvent.event_type).all())
+    data: dict[str, dict] = {}
+    t = floor(since)
+    while t <= now:
+        data[t.strftime("%Y-%m-%dT%H:%M:%SZ")] = {"events": 0, "entities": 0, "by_event_type": {}}
+        t += step
+    for b, etype, n, entities in rows:
+        slot = data.setdefault(str(b) + "Z", {"events": 0, "entities": 0, "by_event_type": {}})
+        slot["events"] += n
+        slot["entities"] += int(entities)
+        slot["by_event_type"][etype] = n
+    return {"bucket": bucket, "hours": hours,
+            "points": [{"t": t, **v} for t, v in sorted(data.items())]}
 
 
 @router.delete("/{event_id}", status_code=204)

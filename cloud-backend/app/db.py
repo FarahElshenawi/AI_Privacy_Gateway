@@ -12,7 +12,7 @@ import threading
 from datetime import datetime
 from sqlalchemy import (
     create_engine, Column, Integer, String, Text, DateTime, Boolean,
-    ForeignKey, JSON, func,
+    ForeignKey, JSON, func, Index,
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
@@ -54,6 +54,8 @@ class Policy(Base):
 
     organization = relationship("Organization", back_populates="policies")
 
+    __table_args__ = (Index("uq_policies_org_entity", "org_id", "entity_type", unique=True),)
+
 
 class Endpoint(Base):
     """A registered local backend installation."""
@@ -88,6 +90,27 @@ class AuditEvent(Base):
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
     organization = relationship("Organization", back_populates="audit_events")
+
+    # Every dashboard query is "this org, this time window".
+    __table_args__ = (Index("ix_audit_events_org_ts", "org_id", "timestamp"),)
+
+
+class PolicyChange(Base):
+    """Who/what changed a policy, and from what to what (admin-key actions; no prompt content)."""
+    __tablename__ = "policy_changes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    org_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    entity_type = Column(String(64), nullable=False)
+    old_action = Column(String(32))                    # None when created
+    new_action = Column(String(32))                    # None when deleted
+    changed_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index("ix_policy_changes_org_ts", "org_id", "changed_at"),)
+
+
+def log_policy_change(db, org, entity_type: str, old: str | None, new: str | None) -> None:
+    db.add(PolicyChange(org_id=org.id, entity_type=entity_type, old_action=old, new_action=new))
 
 
 class TenantConfig(Base):
@@ -131,26 +154,52 @@ def database_url() -> str:
 
 
 def init_db(db_url: str | None = None):
-    """Create all tables and return the (cached, one-per-URL) engine.
+    """Return the (cached, one-per-URL) engine, with the schema ready.
 
-    Previously every request built a brand-new engine and re-ran create_all; engines own the
-    connection pool, so that leaked pools and ignored DATABASE_URL.
+    SQLite (dev, tests, single-box installs): tables are created and upgraded automatically.
+    Any other database (PostgreSQL in production): the schema is owned by Alembic. Run
+    `alembic upgrade head` first; startup refuses to run against a database that is not at head,
+    so a forgotten migration is an error, not a runtime surprise.
     """
     url = db_url or database_url()
     with _engines_lock:
         engine = _engines.get(url)
         if engine is None:
-            kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}
+            is_sqlite = url.startswith("sqlite")
+            kwargs = {"connect_args": {"check_same_thread": False}} if is_sqlite else {"pool_pre_ping": True}
             engine = create_engine(url, echo=False, **kwargs)
-            Base.metadata.create_all(engine)
-            _migrate(engine)
+            if is_sqlite:
+                Base.metadata.create_all(engine)
+                _migrate(engine)
+            else:
+                _require_schema_at_head(engine)
             _engines[url] = engine
     return engine
 
 
+def _require_schema_at_head(engine) -> None:
+    from alembic.migration import MigrationContext
+    from alembic.script import ScriptDirectory
+    heads = set(ScriptDirectory(_alembic_config().get_main_option("script_location")).get_heads())
+    with engine.connect() as conn:
+        current = set(MigrationContext.configure(conn).get_current_heads())
+    if current != heads:
+        raise RuntimeError("Database schema is not up to date. Run `alembic upgrade head` "
+                           f"(current: {sorted(current) or 'none'}, expected: {sorted(heads)}).")
+
+
+def _alembic_config():
+    from pathlib import Path
+    from alembic.config import Config
+    root = Path(__file__).resolve().parents[1]
+    cfg = Config(str(root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(root / "alembic"))
+    return cfg
+
+
 def _migrate(engine) -> None:
-    """Idempotent, additive schema upgrade for databases created before the credential split.
-    (create_all never alters existing tables. Alembic is the long-term answer.)"""
+    """Idempotent, additive upgrade for SQLite databases created by older versions
+    (create_all never alters existing tables). PostgreSQL uses Alembic instead."""
     from sqlalchemy import inspect, text
     insp = inspect(engine)
     cols = {t: {c["name"] for c in insp.get_columns(t)} for t in ("organizations", "endpoints")}
@@ -167,6 +216,13 @@ def _migrate(engine) -> None:
         for rid, tok in rows:
             conn.execute(text("UPDATE endpoints SET token_hash=:h, enrollment_token=NULL WHERE id=:i"),
                          {"h": hashlib.sha256(tok.encode()).hexdigest(), "i": rid})
+        # One policy per (org, entity type): drop older duplicates (keep the newest), then enforce it.
+        conn.execute(text(
+            "DELETE FROM policies WHERE id NOT IN (SELECT MAX(id) FROM policies GROUP BY org_id, entity_type)"))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_policies_org_entity ON policies (org_id, entity_type)"))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_audit_events_org_ts ON audit_events (org_id, timestamp)"))
 
 
 def get_session(engine):
