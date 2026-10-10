@@ -35,7 +35,7 @@ from dlp_core.residual_scanner import scan as residual_scan
 from dlp_core.tier1 import Tier1Config, Tier1Engine
 from dlp_core.tier2 import Tier2Config, Tier2Engine
 from app.thresholds import load_min_scores
-from dlp_core.vault import ensure_vault_key_file, resolve_vault_key
+from dlp_core.vault import KeystoreSecret, ensure_vault_key_file, resolve_vault_key
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -91,7 +91,7 @@ def _build_vault():
     db_path = os.environ.get("DLP_VAULT_DB_PATH",
                              str(Path.home() / ".pii_gateway_vault.db"))
     key = resolve_vault_key() or ensure_vault_key_file()
-    return PersistentVault(FernetSealer(key), db_path)
+    return PersistentVault(FernetSealer(key), db_path, key_store=KeystoreSecret())
 
 
 _vault = _build_vault()

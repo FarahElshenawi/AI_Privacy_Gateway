@@ -88,6 +88,13 @@ class OffsetMasker:
         self._max_attempts = max_attempts
 
     def mask(self, text: str, spans: Sequence[MergedSpan], conversation_id: str) -> MaskResult:
+        batch = getattr(self._vault, "batch", None)
+        if batch is None:
+            return self._mask(text, spans, conversation_id)
+        with batch():            # one disk transaction for all the mappings this call creates
+            return self._mask(text, spans, conversation_id)
+
+    def _mask(self, text: str, spans: Sequence[MergedSpan], conversation_id: str) -> MaskResult:
         self._validate(text, spans)
 
         # Pre-compute the routing decision for every span ONCE.
