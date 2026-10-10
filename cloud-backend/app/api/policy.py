@@ -12,11 +12,13 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, StringConstraints, field_serializer
 
 from app.auth import Caller, require_org, require_org_or_endpoint
-from app.db import Organization, Policy, get_db, log_admin_action
+from app.db import Organization, Policy, PolicyChange, get_db, log_admin_action, log_policy_change
 
 router = APIRouter(prefix="/api/policies", tags=["policies"])
 
@@ -71,7 +73,27 @@ def list_policies(org: Organization = Depends(require_org), db=Depends(get_db)):
     return db.query(Policy).filter(Policy.org_id == org.id).all()
 
 
-# NOTE: /export must be declared BEFORE /{entity_type}, or "export" is captured as an entity type.
+class PolicyChangeInfo(BaseModel):
+    id: int
+    entity_type: str
+    old_action: Optional[str]
+    new_action: Optional[str]
+    changed_at: datetime
+
+    @field_serializer("changed_at")
+    def _utc(self, v: datetime) -> str:
+        return (v if v.tzinfo else v.replace(tzinfo=timezone.utc)).isoformat().replace("+00:00", "Z")
+
+
+@router.get("/history", response_model=list[PolicyChangeInfo])
+def policy_history(limit: int = Query(100, ge=1, le=1000), org: Organization = Depends(require_org),
+                   db=Depends(get_db)):
+    """Policy change log: what each entity type was changed from and to, newest first."""
+    return (db.query(PolicyChange).filter(PolicyChange.org_id == org.id)
+            .order_by(PolicyChange.id.desc()).limit(limit).all())
+
+
+# NOTE: /export and /history must be declared BEFORE /{entity_type}, or "export" is captured as an entity type.
 @router.get("/export")
 def export_policies(caller: Caller = Depends(require_org_or_endpoint), db=Depends(get_db)):
     """All policies as a routing table: {"PERSON": "faker", "CREDIT_CARD": "redact", ...}.
@@ -111,6 +133,7 @@ def create_policy(body: PolicyCreate, org: Organization = Depends(require_org), 
         raise HTTPException(status_code=409, detail=f"Policy for {body.entity_type} already exists")
     policy = Policy(org_id=org.id, entity_type=body.entity_type, action=body.action)
     db.add(policy)
+    log_policy_change(db, org, body.entity_type, None, body.action)
     log_admin_action(db, org, "policy.create", f"{body.entity_type}={body.action}")
     db.commit()
     db.refresh(policy)
@@ -132,6 +155,7 @@ def update_policy(policy_id: int, body: PolicyUpdate,
             detail=f"Security violation: critical secret '{target_type}' cannot be configured with Action 'keep'",
         )
 
+    old_type, old_action = policy.entity_type, policy.action
     if body.entity_type and body.entity_type != policy.entity_type:
         clash = db.query(Policy).filter(
             Policy.org_id == org.id, Policy.entity_type == body.entity_type, Policy.id != policy.id).first()
@@ -142,6 +166,12 @@ def update_policy(policy_id: int, body: PolicyUpdate,
         policy.action = body.action
         policy.version += 1
 
+    if (policy.entity_type, policy.action) != (old_type, old_action):
+        if policy.entity_type != old_type:           # renamed: the old type loses its policy, the new one gains it
+            log_policy_change(db, org, old_type, old_action, None)
+            log_policy_change(db, org, policy.entity_type, None, policy.action)
+        else:
+            log_policy_change(db, org, policy.entity_type, old_action, policy.action)
     log_admin_action(db, org, "policy.update", f"policy:{policy.id} {policy.entity_type}={policy.action}")
     db.commit()
     db.refresh(policy)
@@ -155,5 +185,6 @@ def delete_policy(policy_id: int, org: Organization = Depends(require_org), db=D
     if policy.is_default:
         raise HTTPException(status_code=400, detail="Cannot delete default policies")
     db.delete(policy)
+    log_policy_change(db, org, policy.entity_type, policy.action, None)
     log_admin_action(db, org, "policy.delete", f"policy:{policy_id} {policy.entity_type}")
     db.commit()

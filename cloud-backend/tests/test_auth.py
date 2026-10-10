@@ -13,6 +13,8 @@ PROTECTED = [
     ("DELETE", "/api/policies/1", None),
     ("GET", "/api/audit", None),
     ("GET", "/api/audit/stats", None),
+    ("GET", "/api/audit/timeseries", None),
+    ("GET", "/api/policies/history", None),
     ("POST", "/api/audit", {"event_type": "mask"}),
     ("DELETE", "/api/audit/1", None),
     # Endpoints (local-backend fleet management)
