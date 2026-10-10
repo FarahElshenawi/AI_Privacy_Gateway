@@ -90,6 +90,18 @@ class AuditEvent(Base):
     organization = relationship("Organization", back_populates="audit_events")
 
 
+class TenantConfig(Base):
+    """Per-organization detection settings pushed to every endpoint: customer-specific words that
+    must never leave (deny_terms) and internal-only domains (tenant_domains). One row per org."""
+    __tablename__ = "tenant_config"
+
+    org_id = Column(Integer, ForeignKey("organizations.id"), primary_key=True)
+    deny_terms = Column(Text, nullable=False, default="[]")        # JSON list of strings
+    tenant_domains = Column(Text, nullable=False, default="[]")    # JSON list of hostnames
+    version = Column(Integer, nullable=False, default=1)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class AdminAction(Base):
     """Who changed what with the admin key (no prompt content, no secrets)."""
     __tablename__ = "admin_actions"

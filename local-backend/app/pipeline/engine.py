@@ -8,6 +8,7 @@ vault, and the Demasker. Everything that can be tuned is an environment variable
     The two timeouts are BASE budgets: each call also gets DLP_TIERn_PER_KCHAR_S per 1000 characters
     (defaults 0.05 / 0.5), capped at DLP_TIERn_MAX_S for prompts (10 / 20) and DLP_TIERn_FILE_MAX_S for
     file batches (60 / 300), so a 100 KB file batch is not judged like a chat prompt.
+    DLP_MIN_SCORES_FILE   optional       JSON of per-label minimum scores from the bake-off (see app/thresholds.py)
     DLP_FILE_STRICT       default true   /process_file fails (422) when any tier was degraded for the file
     DLP_TIER2_ENABLED     default true   false = run Tier 1 only (reported as degraded/uncovered)
     DLP_WARM_TIER2        default true   load the model at startup in a background thread
@@ -28,9 +29,11 @@ from pathlib import Path
 
 from dlp_core import Demasker, FernetSealer, InMemoryVault, OffsetMasker, PersistentVault
 from dlp_core.detection import DetectionPipeline, DetectionResult, DetectorSpec
+from dlp_core.merge import MergeEngine
 from dlp_core.residual_scanner import scan as residual_scan
 from dlp_core.tier1 import Tier1Config, Tier1Engine
 from dlp_core.tier2 import Tier2Config, Tier2Engine
+from app.thresholds import load_min_scores
 from dlp_core.vault import ensure_vault_key_file, resolve_vault_key
 
 
@@ -101,13 +104,19 @@ _pipeline = DetectionPipeline([
     DetectorSpec(_tier2, critical=False, timeout_s=TIER2_TIMEOUT_S,
                  per_kchar_s=_env_float("DLP_TIER2_PER_KCHAR_S", 0.5),
                  max_s=_env_float("DLP_TIER2_MAX_S", 20.0), file_max_s=_env_float("DLP_TIER2_FILE_MAX_S", 300.0)),
-])
+], merge=MergeEngine(min_scores=load_min_scores()))
 _masker = OffsetMasker(_vault, _surrogate)
 _demasker = Demasker(_vault)
 
 
 def detect(text: str) -> DetectionResult:
     return _pipeline.run(text)
+
+
+def apply_tenant_config(deny_terms, tenant_domains) -> None:
+    """Hot-apply the cloud-managed tenant lists to Tier 1 (deny terms + internal-only domains)."""
+    from dataclasses import replace
+    _tier1.reconfigure(replace(_tier1.config, deny_terms=tuple(deny_terms), tenant_domains=tuple(tenant_domains)))
 
 
 def detect_file(text: str) -> DetectionResult:

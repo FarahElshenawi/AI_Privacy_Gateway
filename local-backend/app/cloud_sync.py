@@ -390,6 +390,41 @@ from app.policy_runtime import apply_policies as apply_cloud_policies  # noqa: E
 
 # --- Policy pull ------------------------------------------------------------
 
+_tenant_version: Optional[int] = None
+
+
+def apply_tenant_config(cfg: dict) -> bool:
+    """Apply {"deny_terms": [...], "tenant_domains": [...], "version": n} to Tier 1. Re-validated
+    here even though the cloud validates: this is what decides what is masked on the device."""
+    global _tenant_version
+    terms = cfg.get("deny_terms", [])
+    domains = cfg.get("tenant_domains", [])
+    if not (isinstance(terms, list) and isinstance(domains, list)
+            and all(isinstance(t, str) and 2 <= len(t.strip()) <= 100 for t in terms)
+            and all(isinstance(d, str) and re.fullmatch(r"[A-Za-z0-9.-]{1,253}", d) for d in domains)
+            and len(terms) <= 500 and len(domains) <= 200):
+        logger.warning("Ignored malformed tenant config")
+        return False
+    version = cfg.get("version")
+    if version is not None and version == _tenant_version:
+        return False
+    from app.pipeline import engine
+    engine.apply_tenant_config([t.strip() for t in terms], [d.lower() for d in domains])
+    _tenant_version = version if isinstance(version, int) else None
+    logger.info("Applied tenant config: %d deny terms, %d internal domains", len(terms), len(domains))
+    return True
+
+
+def _pull_tenant_config(hdr: dict) -> None:
+    try:
+        cfg = _get_json(f"{CLOUD_URL}/api/tenant-config", hdr)
+    except _Unauthorized:
+        _forget_token()
+        return
+    if isinstance(cfg, dict):
+        apply_tenant_config(cfg)
+
+
 def _pull_and_apply_policies() -> None:
     """GET /api/policies/export and apply it to the running masking pipeline."""
     if not _have_credentials():
@@ -410,6 +445,10 @@ def _pull_and_apply_policies() -> None:
                     f" (rejected: {', '.join(rejected)})" if rejected else "")
     except Exception as e:
         logger.warning("policy apply error: %s", e)
+    try:
+        _pull_tenant_config(hdr)
+    except Exception as e:  # noqa: BLE001 - tenant config must never break the policy loop
+        logger.warning("tenant config error: %s", e)
 
 
 def _policy_pull_loop(stop_event: threading.Event) -> None:
