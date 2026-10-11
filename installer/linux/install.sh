@@ -10,6 +10,7 @@ mkdir -p "$APP" "$HOME/.config/doppel" "$HOME/.config/systemd/user"
 python3 -m venv "$APP/venv"
 "$APP/venv/bin/pip" install --quiet -r "$ROOT/local-backend/requirements.txt" huggingface_hub
 rm -rf "$APP/app" && mkdir -p "$APP/app" && cp -r "$ROOT/local-backend/app" "$ROOT/local-backend/dlp_core" "$APP/app/"
+find "$APP/app" \( -name 'test_*.py' -o -name tests -o -path '*/dlp_core/eval' \) -prune -exec rm -rf {} +   # runtime only
 "$APP/venv/bin/python" "$ROOT/scripts/fetch_model.py" --revision "$MODEL_REVISION" --dest "$APP/model"
 
 ENVF="$HOME/.config/doppel/env"

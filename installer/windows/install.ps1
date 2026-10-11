@@ -11,6 +11,8 @@ python -m venv "$app\venv"
 if (Test-Path "$app\app") { Remove-Item -Recurse -Force "$app\app" }
 New-Item -ItemType Directory -Force -Path "$app\app" | Out-Null
 Copy-Item -Recurse "$root\local-backend\app", "$root\local-backend\dlp_core" "$app\app"
+Get-ChildItem -Recurse "$app\app" -Include "test_*.py" | Remove-Item -Force   # runtime only
+Get-ChildItem -Recurse "$app\app" -Directory | Where-Object { $_.Name -eq "tests" -or $_.FullName -like "*\dlp_core\eval" } | Remove-Item -Recurse -Force
 & "$app\venv\Scripts\python.exe" "$root\scripts\fetch_model.py" --revision $env:MODEL_REVISION --dest "$app\model"
 
 # The launcher sets the environment; it lives in the user's profile (ACL: owner only) because it holds the enrollment key.

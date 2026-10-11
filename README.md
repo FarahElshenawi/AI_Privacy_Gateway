@@ -421,7 +421,7 @@ GLiNER2-PII-multi selected. All labels met target threshold — no fine-tuning n
 python -m dlp_core.eval.bakeoff --candidates eval/candidates.json --out eval/bakeoff --device cuda
 ```
 
-Each candidate runs in its own subprocess (crash isolation). Thresholds swept offline. See `eval/BAKEOFF.md` for full instructions.
+Each candidate runs in its own subprocess (crash isolation). Thresholds swept offline. Usage and options are in the docstring of `local-backend/dlp_core/eval/bakeoff.py`.
 
 ---
 

@@ -97,14 +97,24 @@ npm run lint
 ## Layout
 
 ```
-manifest.json
-src/background/service-worker.js   # CDP interception, classification, backend calls
+manifest.json, managed_schema.json
+src/background/service-worker.js   # entry: event wiring only (CDP router, popup messages, alarms)
+src/background/core.js             # constants, protection on/off + admin lock, shared per-tab state, diagnostics
+src/background/backend.js          # local-backend calls (token, mask, file), activity log
+src/background/vault-id.js         # conversation → vault id
+src/background/cdp.js              # continue/block/body helpers, request classification
+src/background/chatgpt.js          # ChatGPT send, prepare, reserve, file PUT, browser-masked files, mapping
+src/background/gemini.js           # Gemini send and uploads
+src/background/attach.js           # debugger attach/detach/re-attach, badge
+src/background/state.js            # per-tab queues persisted in chrome.storage.session
 src/background/body.js             # pure helpers: body parsing/building, file sniffing
 src/content/file-interceptor.js    # ChatGPT: swap attached files for masked ones (picker/drop/paste)
 src/content/demask.js              # ChatGPT + Gemini: show real values in replies
 src/popup/                         # stats, attach status, diagnostics
-tests/                             # body.test.js, sw.test.js, content.test.js, demask.test.js
+tests/                             # body, sw, sw-resilience, resilience, content, demask tests
 ```
+
+Dependencies only point one way: `core` ← `backend` / `vault-id` ← `cdp` ← `chatgpt` / `gemini`; `service-worker.js` imports them all.
 
 ## Pinned extension ID
 

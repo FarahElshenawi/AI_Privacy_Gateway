@@ -5,6 +5,6 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "lint": "node --check src/background/service-worker.js && node --check src/background/body.js && node --check src/popup/popup.js && node --check src/content/demask.js && node --check src/content/file-interceptor.js && node --check src/background/state.js"
+    "lint": "node --check src/background/service-worker.js && node --check src/background/core.js && node --check src/background/backend.js && node --check src/background/vault-id.js && node --check src/background/cdp.js && node --check src/background/chatgpt.js && node --check src/background/gemini.js && node --check src/background/attach.js && node --check src/background/state.js && node --check src/background/body.js && node --check src/popup/popup.js && node --check src/content/demask.js && node --check src/content/file-interceptor.js"
   }
 }

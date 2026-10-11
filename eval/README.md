@@ -1,17 +1,11 @@
-# Evaluation Package
+# Evaluation material
 
-`eval_set_v1.json` — the 50-prompt hand-built evaluation set (Role 1), used for:
+Three places hold evaluation work. Only the first is the live harness.
 
-- **Metric 1** — Precision/Recall (scoring/precision_recall.py)
-- **Metric 2** — Independent Recall via the residual scanner, not GLiNER (scoring/residual_scanner_eval.py)
-- **Metric 3** — Semantic Fidelity, composite + hard-case subset reported separately (scoring/semantic_fidelity.py)
-- The **Week 1 zero-shot gate** (docs/adr/0001-zero-shot-before-finetuning.md) also scores against this set.
+| Place | What it is |
+|-------|-----------|
+| `local-backend/dlp_core/eval/` | **The harness.** Metrics, `run.py`, the Tier 2 bake-off (`bakeoff.py`), the generators for the dev and frozen hold-out sets (`make_*.py`), and `report.json`. The hold-out file is regenerated with `python -m dlp_core.eval.make_holdout` and checked against `holdout_v1.sha256`. Tests: `test_eval.py`, `test_holdout_frozen.py`. |
+| `local-backend/eval/` | An earlier 500-example set and its generator (`generate_eval_set.py`) with its false-positive/negative dumps. Kept for reference. |
+| `eval/` (this folder) | **Week 1 research archive.** `eval_set_v1.json` (50 hand-built prompts, with CSV exports), zero-shot experiments in `tests/` (not run by CI), and notebooks in `Detection Model Experiments/`. The ADR `docs/adr/0001-zero-shot-before-finetuning.md` describes why. |
 
-10 inflection + 5 all-caps hard cases are tagged in `hard_case` per prompt — see
-docs/architecture.md 1.3 (Vault) and the eval set's own `notes` field for how
-these map to the demasking edge cases they test.
-
-Regenerate CSV exports from the JSON source of truth:
-```bash
-python3 scripts/export_csv.py
-```
+The bake-off command is in the root README (Evaluation section).
