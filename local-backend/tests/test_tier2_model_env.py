@@ -1,30 +1,25 @@
-"""DLP_TIER2_MODEL points Tier 2 at a pinned local snapshot."""
-import importlib
+"""DLP_TIER2_MODEL points Tier 2 at a pinned local snapshot.
 
-import pytest
-
-
-@pytest.fixture(autouse=True)
-def _restore_engine(monkeypatch):
-    yield
-    monkeypatch.undo()
-    from app.pipeline import engine
-    importlib.reload(engine)
+Each case runs in a fresh interpreter: reloading app.pipeline.engine in-process would replace the
+shared vault/masker that the API modules already hold and break later tests.
+"""
+import os
+import subprocess
+import sys
 
 
-def test_model_env_override(monkeypatch):
-    monkeypatch.setenv("DLP_TIER2_MODEL", "/opt/doppel/model")
-    monkeypatch.setenv("DLP_TIER2_ENABLED", "false")
-    monkeypatch.setenv("DLP_VAULT_PERSIST", "false")
-    from app.pipeline import engine
-    engine = importlib.reload(engine)
-    assert engine._tier2.config.model_name == "/opt/doppel/model"
+def _model_name(**env_overrides) -> str:
+    env = {k: v for k, v in os.environ.items() if k != "DLP_TIER2_MODEL"}
+    env.update(DLP_TIER2_ENABLED="false", DLP_VAULT_PERSIST="false", DLP_WARM_TIER2="false", **env_overrides)
+    out = subprocess.run([sys.executable, "-c", "import app.pipeline.engine as e; print(e._tier2.config.model_name)"],
+                         capture_output=True, text=True, env=env, timeout=120)
+    assert out.returncode == 0, out.stderr[-500:]
+    return out.stdout.strip()
 
 
-def test_model_default_when_unset(monkeypatch):
-    monkeypatch.delenv("DLP_TIER2_MODEL", raising=False)
-    monkeypatch.setenv("DLP_TIER2_ENABLED", "false")
-    monkeypatch.setenv("DLP_VAULT_PERSIST", "false")
-    from app.pipeline import engine
-    engine = importlib.reload(engine)
-    assert engine._tier2.config.model_name.startswith("fastino/")
+def test_model_env_override():
+    assert _model_name(DLP_TIER2_MODEL="/opt/doppel/model") == "/opt/doppel/model"
+
+
+def test_model_default_when_unset():
+    assert _model_name().startswith("fastino/")
