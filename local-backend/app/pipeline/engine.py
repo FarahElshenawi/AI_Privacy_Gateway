@@ -52,8 +52,8 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-TIER1_TIMEOUT_S = _env_float("DLP_TIER1_TIMEOUT_S", 2.0)
-TIER2_TIMEOUT_S = _env_float("DLP_TIER2_TIMEOUT_S", 3.0)
+TIER1_TIMEOUT_S = _env_float("DLP_TIER1_TIMEOUT_S", 15.0)
+TIER2_TIMEOUT_S = _env_float("DLP_TIER2_TIMEOUT_S", 300.0)
 FILE_STRICT_DEFAULT = _env_bool("DLP_FILE_STRICT", True)
 IMAGE_POLICIES = ("default", "block", "warn")
 IMAGE_POLICY = os.environ.get("DLP_IMAGE_POLICY", "default").strip().lower()

@@ -6,8 +6,8 @@ export const PROTECTION_KEY = "protectionEnabled";
 export const LOCK_KEY = "protectionLocked";    // chrome.storage.managed (enterprise policy): protection cannot be turned off
 export const DEMASK_KEY = "demaskEnabled";   // default ON; popup: "Show real values in replies"
 export const MAX_ACTIVITY = 20;
-export const MASK_TIMEOUT_MS = 15000;
-export const FILE_TIMEOUT_MS = 90000;
+export const MASK_TIMEOUT_MS = 300000;
+export const FILE_TIMEOUT_MS = 1000000;
 
 // Narrow patterns: only pause requests that can carry user content. Every
 // paused request costs a round-trip through this worker, so don't pause
