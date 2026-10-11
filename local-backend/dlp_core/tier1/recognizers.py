@@ -37,8 +37,13 @@ def _src(name: str) -> str:
 
 @runtime_checkable
 class Recognizer(Protocol):
-    name: str
-    labels: tuple[str, ...]
+    # Read-only properties, so both dataclass fields and plain class attributes
+    # (`labels = ("IBAN",)`, inferred as tuple[str]) satisfy the protocol.
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def labels(self) -> tuple[str, ...]: ...
 
     def scan(self, text: str) -> Iterator[Span]: ...
 

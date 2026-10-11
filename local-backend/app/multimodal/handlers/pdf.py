@@ -77,7 +77,7 @@ class PdfHandler:
             if doc.embfile_count() > 0:
                 blockers.append("embedded_files_present")
             total = 0
-            for i, page in enumerate(doc):
+            for i, page in enumerate(doc.pages()):
                 text, _ = _page_model(page)
                 total += len(text.strip())
                 has_images = bool(page.get_images(full=True))
@@ -113,7 +113,7 @@ class PdfHandler:
         doc = pymupdf.open(src)
         original = {s.key: s.text for s in extraction.segments}
         try:
-            for i, page in enumerate(doc):
+            for i, page in enumerate(doc.pages()):
                 for j, link in enumerate(page.get_links()):
                     if result.edits.get(("link", i, j)):
                         page.delete_link(link)           # a link target that holds sensitive data is removed
@@ -155,7 +155,7 @@ class PdfHandler:
             for r in rects:        # inset: touching neighbours must not be swept into the redaction
                 page.add_redact_annot(pymupdf.Rect(r.x0 + 0.2, r.y0 + 0.4, r.x1 - 0.2, r.y1 - 0.4), fill=(1, 1, 1))
         try:
-            page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
+            page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)  # type: ignore[attr-defined]
         except TypeError:
             page.apply_redactions()
         for rects, head, repl in plan:
