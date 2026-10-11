@@ -9,6 +9,7 @@ mkdir -p "$APP" "$HOME/Library/LaunchAgents"
 python3 -m venv "$APP/venv"
 "$APP/venv/bin/pip" install --quiet -r "$ROOT/local-backend/requirements.txt" huggingface_hub
 rm -rf "$APP/app" && mkdir -p "$APP/app" && cp -r "$ROOT/local-backend/app" "$ROOT/local-backend/dlp_core" "$APP/app/"
+find "$APP/app" \( -name 'test_*.py' -o -name tests -o -path '*/dlp_core/eval' \) -prune -exec rm -rf {} +   # runtime only
 "$APP/venv/bin/python" "$ROOT/scripts/fetch_model.py" --revision "$MODEL_REVISION" --dest "$APP/model"
 PLIST="$HOME/Library/LaunchAgents/com.doppel.backend.plist"
 umask 077       # the plist carries the enrollment key
