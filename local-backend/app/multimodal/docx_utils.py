@@ -41,7 +41,7 @@ def iter_paragraphs(doc) -> list:
             if p in seen:
                 continue
             seen.add(p)
-            found.append(Paragraph(p, None))
+            found.append(Paragraph(p, None))  # type: ignore[arg-type]  # no story part is intended
     return found
 
 
