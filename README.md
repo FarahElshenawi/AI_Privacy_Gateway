@@ -225,7 +225,7 @@ Catches **structured PII** with regex patterns + mathematical validators. Runs f
 
 ### Tier 2 — Semantic (`dlp_core/tier2/`)
 
-Uses **GLiNER2-PII** (`fastino/gliner2-privacy-filter-PII-multi`, 205M params) for context-dependent PII that Tier 1 can't catch. **Non-critical** — failure degrades (names not detected, request continues with warning).
+Uses **GLiNER2-PII**: installs pin our fine-tune `Hager290/gliner2_FT` (from `fastino/gliner2-privacy-filter-PII-multi`, 205M params; see `docs/deployment.md`) for context-dependent PII that Tier 1 can't catch. **Non-critical** — failure degrades (names not detected, request continues with warning).
 
 **17 semantic labels:** person, full_name, address, city, country, username, password, organization, date_of_birth, government_id, passport_number, drivers_license_number, sensitive_date, etc.
 

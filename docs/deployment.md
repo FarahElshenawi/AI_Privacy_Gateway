@@ -14,13 +14,14 @@ Three pieces: the **local backend** on each machine, the **Chrome extension**, a
 
 Inputs (environment variables):
 
-- `MODEL_REVISION` (required): the full 40-character commit sha of `fastino/gliner2-privacy-filter-PII-multi` you validated. A branch or tag is refused, so the model cannot change underneath you. At the time of writing the Hub reported `1cb4166094dc58fa8d836429f060d6c95f62b495`; **verify it yourself and run the eval on it before you pin it.**
+- `MODEL_REPO` (optional, default `Hager290/gliner2_FT`): the Tier 2 model, our fine-tune of `fastino/gliner2-privacy-filter-PII-multi`. Set it to `fastino/gliner2-privacy-filter-PII-multi` to install the un-tuned base model instead.
+- `MODEL_REVISION` (optional, default `63d7bc5d15ba2803d835dcd68260b4333f5ceecd`): the full 40-character commit sha of that repo. A branch or tag is refused, so the model cannot change underneath you. The default is the commit the Hub reported for `Hager290/gliner2_FT` on 2026-10-12; the weights were **not** loaded or evaluated in CI, so run the eval on it before a pilot, and pass a new sha only after you have validated it.
 - `DLP_EXTENSION_IDS`: extra allowed extension IDs (the pinned ID `efcejekkbkbbknfpjgbpkojgnoomggbi` is always allowed).
 - `CLOUD_URL`, `CLOUD_ENROLL_KEY`: the device enrolls itself with the enrollment key and then uses its own token.
 
 The model is loaded from disk with `HF_HUB_OFFLINE=1`; nothing is fetched at run time. The vault key goes into the OS credential store (see the local-backend README).
 
-**Updating** is the same command again with a new `MODEL_REVISION` (or none change): it replaces the code and model and restarts the service. Roll out through your software-distribution tool (Intune, Jamf, a configuration manager); there is no self-updater, on purpose, so that nothing on a laptop pulls code from the internet by itself.
+**Updating** is the same command again with a new `MODEL_REVISION` (or none, to keep the pin): it replaces the code and model and restarts the service. Roll out through your software-distribution tool (Intune, Jamf, a configuration manager); there is no self-updater, on purpose, so that nothing on a laptop pulls code from the internet by itself.
 
 **Not included, needs you:** a signed installer package (`.msi`/`.pkg`/`.deb`). Signing needs your code-signing certificate (Windows Authenticode, Apple Developer ID plus notarisation); these scripts are what you would wrap in that package. They have been syntax-checked, not run on Windows or macOS.
 
