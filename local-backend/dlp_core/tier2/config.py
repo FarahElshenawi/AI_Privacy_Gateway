@@ -32,7 +32,7 @@ class Tier2Config:
         chunk_size / chunk_overlap: passed to the model's long-text extraction.
         enabled: False reports the tier as unavailable (degraded mode).
     """
-    model_name: str = "fastino/gliner2-privacy-filter-PII-multi"
+    model_name: str = "Hager290/gliner2_FT"   # fine-tune of fastino/gliner2-privacy-filter-PII-multi
     onnx_path: Optional[str] = None
     use_onnx: bool = False
     labels: tuple[str, ...] = DEFAULT_LABELS
