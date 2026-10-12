@@ -52,7 +52,8 @@ def test_context_is_never_written_back():
 
 def test_csv_cells_get_header_context_and_layout_is_preserved(tmp_path):
     src = tmp_path / "p.csv"
-    src.write_text('Name,SSN,Note\r\nAlice,123-45-6789,"hi, 4111 1111 1111 1111"\r\nBob,x,y\r\n')
+    # bytes, not write_text: on Windows text mode would turn \r\n into \r\r\n
+    src.write_bytes(b'Name,SSN,Note\r\nAlice,123-45-6789,"hi, 4111 1111 1111 1111"\r\nBob,x,y\r\n')
     r = _run(src, tmp_path / "p_m.csv")
     assert r["success"], r
     out = (tmp_path / "p_m.csv").read_bytes().decode()
