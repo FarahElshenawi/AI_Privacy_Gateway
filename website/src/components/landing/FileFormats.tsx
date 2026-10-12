@@ -1,95 +1,44 @@
 "use client";
 
+import { FileSpreadsheet, FileText, FileType, ImageOff, Table2 } from "lucide-react";
 import { Reveal } from "./Reveal";
 import { SectionHeader, SpotlightCard } from "./bits";
 
 const FORMATS = [
-  {
-    ext: "txt",
-    name: "Plain text",
-    desc: "TXT, MD, CSV, JSON — masked in place",
-    supported: true,
-  },
-  {
-    ext: "pdf",
-    name: "PDF documents",
-    desc: "Text redacted in place, layout preserved",
-    supported: true,
-  },
-  {
-    ext: "docx",
-    name: "Word documents",
-    desc: "Body, tables, headers — all scanned",
-    supported: true,
-  },
-  {
-    ext: "xlsx",
-    name: "Excel spreadsheets",
-    desc: "String + numeric cells, cleaned output",
-    supported: true,
-  },
-  {
-    ext: "img",
-    name: "Images & scans",
-    desc: "Blocked by default — no OCR yet",
-    supported: false,
-  },
-  {
-    ext: "?",
-    name: "Unknown types",
-    desc: "Blocked — never passed through",
-    supported: false,
-  },
+  { icon: FileText, name: "Text, CSV, TSV", body: "Encoding, BOM and line endings preserved. CSV columns use their header as context." },
+  { icon: FileType, name: "PDF", body: "Character-level redaction: only the detected glyphs are removed and replaced in place." },
+  { icon: FileText, name: "Word (.docx)", body: "Bodies, tables, headers, footers and hyperlinks, with run formatting kept." },
+  { icon: FileSpreadsheet, name: "Excel (.xlsx)", body: "Strings, numeric cells, formulas, comments and hidden sheets. Returned as a cleaned copy." },
 ];
 
 export function FileFormats() {
   return (
-    <section className="relative py-24 lg:py-32">
+    <section className="relative border-t border-[var(--border)] py-24 lg:py-32">
       <div className="container-x">
-        <SectionHeader
-          eyebrow="File uploads"
-          title={<>Files keep their <span className="text-gradient">format</span>.</>}
-          desc="Text in PDF and Word is masked in place. Excel files come back as a cleaned copy with sensitive cells swapped. Scanned PDFs and images are blocked, not guessed at."
-        />
-
-        <div className="mt-14 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {FORMATS.map((f, i) => (
-            <Reveal key={f.name} delay={i * 0.06}>
-              <SpotlightCard className="h-full p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`grid h-11 w-11 place-items-center rounded-xl border text-[15px] font-bold ${
-                        f.supported
-                          ? "border-[var(--border-strong)] bg-[var(--subtle)] text-[var(--primary)]"
-                          : "border-[var(--border)] bg-transparent text-[var(--muted)]"
-                      }`}
-                    >
-                      {f.ext}
-                    </span>
-                    <div>
-                      <div className="text-[15px] font-medium text-[var(--ink)]">{f.name}</div>
-                      <div className="text-[13px] text-[var(--muted)] mt-0.5">{f.desc}</div>
-                    </div>
-                  </div>
-                  {f.supported ? (
-                    <span className="rounded-full bg-[rgba(47,213,143,.12)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--primary)]">
-                      Supported
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-[rgba(224,96,91,.12)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--danger)]">
-                      Blocked
-                    </span>
-                  )}
-                </div>
-              </SpotlightCard>
-            </Reveal>
-          ))}
+        <SectionHeader eyebrow="Files" title="Files keep their format." desc="Attachments are masked before upload and stay usable. Anything that cannot be inspected is blocked rather than guessed at." />
+        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {FORMATS.map((f, i) => {
+            const Icon = f.icon;
+            return (
+              <Reveal key={f.name} delay={i * 0.07}>
+                <SpotlightCard className="h-full p-6">
+                  <Icon className="h-6 w-6 text-[var(--primary)]" strokeWidth={2} />
+                  <h3 className="mt-4 text-[17px] font-semibold text-[var(--ink)]">{f.name}</h3>
+                  <p className="mt-2 text-[14px] leading-[1.65] text-[var(--body)]">{f.body}</p>
+                </SpotlightCard>
+              </Reveal>
+            );
+          })}
         </div>
-
-        <p className="mt-6 text-[13px] text-[var(--muted)] max-w-[640px]">
-          File type is detected from magic bytes, not the extension. A .docx renamed as .txt is still processed as Word.
-        </p>
+        <Reveal delay={0.1}>
+          <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-[rgba(224,96,91,.25)] bg-[rgba(224,96,91,.05)] px-6 py-4 text-[14px] text-[var(--body)]">
+            <span className="flex items-center gap-2 font-semibold text-[var(--danger)]"><ImageOff className="h-4 w-4" /> Blocked, not passed through</span>
+            <span>Scanned PDFs and images (no OCR)</span>
+            <span>Tracked deletions and comments</span>
+            <span>Encrypted or macro-enabled files</span>
+            <span className="flex items-center gap-1.5"><Table2 className="h-3.5 w-3.5" /> Over 50 MB</span>
+          </div>
+        </Reveal>
       </div>
     </section>
   );

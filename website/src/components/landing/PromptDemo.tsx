@@ -201,7 +201,7 @@ export function PromptDemo() {
             <div className="min-h-[190px] rounded-xl border border-[var(--border)] bg-black/30 p-4 text-[14.5px] leading-[1.9] text-[var(--ink)]">
               <AnimatePresence mode="wait">
                 <motion.div key={stage} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
-                  {stage === 0 && segs.map((s, i) => (s.ent ? <Tok key={i} ent={s.ent} mode="ai" /> : <span key={i}>{s.text.split("").length ? s.text : ""}</span>)).map((n, i) => ({ ...n, key: i }))}
+                  {stage === 0 && segs.map((s, i) => (s.ent ? <Tok key={i} ent={s.ent} mode="ai" /> : <span key={i}>{s.text}</span>))}
                   {stage === 0 && segs.length === 0 && <span className="text-[var(--muted)]">Type something on the left.</span>}
                   {stage === 1 && reply.map((p, i) => (p.ent ? <Tok key={i} ent={p.ent} mode="ai" /> : <span key={i}>{p.t}</span>))}
                   {stage === 2 && reply.map((p, i) => (p.ent ? <Tok key={i} ent={p.ent} mode="real" /> : <span key={i}>{p.t}</span>))}
