@@ -153,6 +153,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case "PING":
           sendResponse({ success: true, pong: Date.now() });
           break;
+        case "DEMASK_REPORT": {       // how many pieces of text the page script restored (a count, never content)
+          if (sender.tab && Number.isInteger(message.replaced)) {
+            setDiag({ lastDemask: `tab ${sender.tab.id}: ${message.replaced} replacement(s) on the page at ${new Date().toLocaleTimeString()}` });
+          }
+          sendResponse({ success: true });
+          break;
+        }
         case "GET_MAPPING": {
           sendResponse(await handleGetMapping(message, sender));
           break;

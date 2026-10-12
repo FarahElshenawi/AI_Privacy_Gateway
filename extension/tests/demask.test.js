@@ -151,3 +151,53 @@ test("reset (new conversation) drops the old mapping before asking for the new o
   assert.equal(d._state().replacer, null);
   assert.equal(d._state().version, 1);
 });
+
+// ── asks for the mapping only while a reply is changing ────────────────────────────────
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const rec = (node) => ({ type: "characterData", target: node, addedNodes: [] });
+const reply = { success: true, enabled: true, changed: false, version: 1, entries: [] };
+
+test("an idle tab makes no further requests after the first one (no timer)", async () => {
+  let calls = 0;
+  const d = createDemasker(fakeDoc([]), async () => { calls++; return reply; }, { gapMs: 30 });
+  d.start();
+  await sleep(150);
+  d._stop();
+  assert.equal(calls, 1);
+});
+
+test("a reply streaming in triggers a few requests, not one per chunk", async () => {
+  let calls = 0;
+  const d = createDemasker(fakeDoc([]), async () => { calls++; return reply; }, { gapMs: 60 });
+  const n = textNode("Hello", el(false, true));
+  for (let i = 0; i < 40; i++) { d._onMutations([rec(n)]); await sleep(2); }
+  await sleep(200);
+  d._stop();
+  assert.ok(calls >= 1 && calls <= 4, `calls=${calls}`);
+});
+
+test("typing in the composer or changes outside assistant messages never ask", async () => {
+  let calls = 0;
+  const d = createDemasker(fakeDoc([]), async () => { calls++; return reply; }, { gapMs: 10 });
+  d._onMutations([rec(textNode("typing", el(true, false))), rec(textNode("sidebar", el(false, false)))]);
+  await sleep(80);
+  d._stop();
+  assert.equal(calls, 0);
+});
+
+test("text the demasker already rewrote needs no new request; unknown new text does", async () => {
+  let calls = 0;
+  const d = createDemasker(fakeDoc([]), async () => { calls++; return { success: true, enabled: true, changed: true, version: 2, entries: [E("Hager", "Farah")] }; }, { gapMs: 10 });
+  await d.refresh();
+  const before = calls;
+  const known = textNode("hi Hager", el(false, true));
+  d._onMutations([rec(known)]);           // rewritten to "hi Farah": the mapping already covered it
+  d._onMutations([rec(known)]);           // the page reports our own write
+  await sleep(60);
+  assert.equal(known.nodeValue, "hi Farah");
+  assert.equal(calls - before, 0);
+  d._onMutations([rec(textNode("a new sentence", el(false, true)))]);   // nothing to restore: re-check the mapping
+  await sleep(60);
+  d._stop();
+  assert.equal(calls - before, 1);
+});

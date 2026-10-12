@@ -42,7 +42,7 @@ below. Gemini uses the network path only (no content script yet).
 The model only sees fake values, so its answers contain them. If you turn the popup switch on, `src/content/demask.js` (ChatGPT
 and Gemini) restores your real values in the text you see, as it streams in: it asks the service
 worker for this conversation's fake→real entries (`/api/mapping` on the local backend, versioned
-so an unchanged conversation costs one tiny call every 2 s), and a MutationObserver rewrites the
+asked once when the page opens and then only while a reply is changing on the page, at most about once every 1.5 s, so an idle tab makes no requests), and a MutationObserver rewrites the
 text nodes that contain a known fake. Replacement is longest-fake-first with word boundaries —
 the same rule as the backend's `/api/demask`. Because it works on rendered text, streaming and
 reloaded chat history both work. The composer is never touched.

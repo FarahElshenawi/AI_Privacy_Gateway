@@ -1,5 +1,5 @@
 import { bytesToBase64, collectAttachmentNameSlots, collectPrepareSlots, collectUserTextSlots, countResidualOriginals, fixFilename, splitFilename } from "./body.js";
-import { DEMASK_KEY, authorizedMaskedFiles, encodeJson, getHeader, isChatGPTUrl, protectionOn, reservedNames, trace } from "./core.js";
+import { DEMASK_KEY, authorizedMaskedFiles, encodeJson, getHeader, isChatGPTUrl, protectionOn, reservedNames, setDiag, trace } from "./core.js";
 import { BackendError, backendPost, coverageNote, logActivity, maskFileChecked, maskViaBackend, recordFileMasked } from "./backend.js";
 import { resolveVaultId } from "./vault-id.js";
 import { block, cont } from "./cdp.js";
@@ -72,6 +72,7 @@ export async function handleSend(source, params, body) {
   }
 
   const vaultId = await resolveVaultId(tabId, parsed.conversation_id || null);
+  setDiag({ lastMaskVault: `tab ${tabId} vault ${shortId(vaultId)} at ${new Date().toLocaleTimeString()}` });
   let result;
   try {
     result = await maskStringSlots([...textSlots, ...nameSlots], vaultId);
@@ -230,12 +231,18 @@ export async function handleFilePut(source, params, body) {
  * Real values only ever travel backend → this worker → the tab's content script (isolated
  * world) and are written into the DOM as display text. Off switch: popup "Show real values".
  */
+/** A vault id is opaque and holds no content; show enough of it to compare the masking side with the mapping side. */
+const shortId = (id) => String(id).replace(/^(new_\d+_)([0-9a-f]{8}).*/, "$1$2…").slice(0, 28);
+
 export async function handleGetMapping(message, sender) {
   if (!sender.tab || !isChatGPTUrl(sender.tab.url)) {
     throw new BackendError("Mapping is only available on ChatGPT / Gemini", 400);
   }
   const st = await chrome.storage.local.get(DEMASK_KEY);
-  if (!(await protectionOn()) || st[DEMASK_KEY] !== true) return { success: true, enabled: false };
+  if (!(await protectionOn()) || st[DEMASK_KEY] !== true) {
+    setDiag({ lastMapping: `off: "Show real values" is not switched on (at ${new Date().toLocaleTimeString()})` });
+    return { success: true, enabled: false };
+  }
 
   const vaultId = await resolveVaultId(sender.tab.id, null);
   const since = Number.isInteger(message.sinceVersion) ? message.sinceVersion : null;
@@ -245,8 +252,9 @@ export async function handleGetMapping(message, sender) {
   }), 5000);
   if (!resp.ok) throw new BackendError(`Mapping request failed (${resp.status})`, resp.status);
   const data = await resp.json();
-  return { success: true, enabled: true, version: data.version, changed: !!data.changed,
-           entries: Array.isArray(data.entries) ? data.entries : [] };
+  const entries = Array.isArray(data.entries) ? data.entries : [];
+  setDiag({ lastMapping: `tab ${sender.tab.id} vault ${shortId(vaultId)}: ${data.changed ? entries.length + " entries" : "unchanged"}, version ${data.version} at ${new Date().toLocaleTimeString()}` });
+  return { success: true, enabled: true, version: data.version, changed: !!data.changed, entries };
 }
 
 export async function handleSelectedFile(message, sender) {
