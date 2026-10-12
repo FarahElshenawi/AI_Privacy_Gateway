@@ -22,4 +22,4 @@ def test_model_env_override():
 
 
 def test_model_default_when_unset():
-    assert _model_name().startswith("fastino/")
+    assert _model_name() == "Hager290/gliner2_FT"

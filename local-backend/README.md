@@ -326,7 +326,7 @@ config = Tier1Config(
 from dlp_core.tier2 import Tier2Config
 
 config = Tier2Config(
-    model_name="fastino/gliner2-privacy-filter-PII-multi",
+    model_name="Hager290/gliner2_FT",   # default; the base model is fastino/gliner2-privacy-filter-PII-multi
     threshold=0.3,                        # low = high recall
     chunk_size=384,                       # GLiNER2 token window
     chunk_overlap=64,

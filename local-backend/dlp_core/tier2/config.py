@@ -6,10 +6,8 @@ Speed claims for ONNX were never measured; benchmark before adopting it.
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Optional
-
 
 # SEMANTIC labels only: things Tier 1's regex + checksums cannot catch. Structured labels
 # (card_number, iban, ...) are deliberately left to Tier 1.
@@ -23,13 +21,6 @@ DEFAULT_LABELS: tuple[str, ...] = (
 )
 
 
-def _extra_labels_from_env() -> tuple[str, ...]:
-    """Optional extra labels, e.g. DLP_TIER2_EXTRA_LABELS=organization. Unset = nothing added."""
-    raw = os.environ.get("DLP_TIER2_EXTRA_LABELS", "")
-    extra = (part.strip().lower() for part in raw.split(","))
-    return tuple(dict.fromkeys(l for l in extra if l and l not in DEFAULT_LABELS))
-
-
 @dataclass(frozen=True, slots=True)
 class Tier2Config:
     """
@@ -41,10 +32,10 @@ class Tier2Config:
         chunk_size / chunk_overlap: passed to the model's long-text extraction.
         enabled: False reports the tier as unavailable (degraded mode).
     """
-    model_name: str = os.environ.get("DLP_TIER2_MODEL", "fastino/gliner2-privacy-filter-PII-multi")
+    model_name: str = "Hager290/gliner2_FT"   # fine-tune of fastino/gliner2-privacy-filter-PII-multi
     onnx_path: Optional[str] = None
     use_onnx: bool = False
-    labels: tuple[str, ...] = DEFAULT_LABELS + _extra_labels_from_env()
+    labels: tuple[str, ...] = DEFAULT_LABELS
     threshold: float = 0.3
     chunk_size: int = 384
     chunk_overlap: int = 64

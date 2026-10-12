@@ -352,7 +352,7 @@ All configuration is via environment variables:
 |----------|---------|-------------|
 | `DLP_TIER1_TIMEOUT_S` / `DLP_TIER2_TIMEOUT_S` | 2.0 / 3.0 | Base time budget per tier. Tier 1 is critical (exceeding blocks); Tier 2 degrades. Big inputs get more time per 1000 characters (`DLP_TIERn_PER_KCHAR_S`), up to `DLP_TIERn_MAX_S` for prompts and `DLP_TIERn_FILE_MAX_S` for files. |
 | `DLP_TIER2_ENABLED` | true | Enable/disable GLiNER2 |
-| `DLP_TIER2_MODEL` | model id | Model id or a local directory, normally the pinned snapshot from `scripts/fetch_model.py`. |
+| `DLP_TIER2_MODEL` | `Hager290/gliner2_FT` | Model id or a local directory. Unset = the fine-tune, fetched from the Hub (unpinned) on first run; production should use the pinned snapshot from `scripts/fetch_model.py`. |
 | `DLP_WARM_TIER2` | true | Pre-load model at startup in background thread |
 | `DLP_STRICT` | false | Block prompts when coverage is incomplete (production: set true) |
 | `DLP_FILE_STRICT` | true | Refuse files when any detector tier was degraded |
