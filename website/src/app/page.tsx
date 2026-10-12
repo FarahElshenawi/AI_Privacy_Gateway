@@ -1,6 +1,8 @@
 import { Navbar } from "@/components/landing/Navbar";
 import { ScrollProgress } from "@/components/landing/ScrollProgress";
 import { Hero } from "@/components/landing/Hero";
+import { Marquee } from "@/components/landing/Marquee";
+import { StatsBand } from "@/components/landing/StatsBand";
 import { Pillars } from "@/components/landing/Pillars";
 import { Difference } from "@/components/landing/Difference";
 import { PIITypes } from "@/components/landing/PIITypes";
@@ -17,6 +19,8 @@ export default function Page() {
       <Navbar />
       <div className="flex-1">
         <Hero />
+        <Marquee />
+        <StatsBand />
         <Pillars />
         <Difference />
         <PIITypes />

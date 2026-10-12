@@ -1,62 +1,95 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { FileText, FileType, FileCode, Sheet } from "lucide-react";
 import { Reveal } from "./Reveal";
+import { SectionHeader, SpotlightCard } from "./bits";
 
 const FORMATS = [
-  { ext: "Plain text", name: "TXT · MD · CSV", icon: FileText, color: "#2FD58F" },
-  { ext: "PDF documents", name: "PDF", icon: FileType, color: "#2FD58F" },
-  { ext: "Word documents", name: "DOCX", icon: FileCode, color: "#2FD58F" },
-  { ext: "Spreadsheets", name: "XLSX", icon: Sheet, color: "#2FD58F" },
+  {
+    ext: "txt",
+    name: "Plain text",
+    desc: "TXT, MD, CSV, JSON — masked in place",
+    supported: true,
+  },
+  {
+    ext: "pdf",
+    name: "PDF documents",
+    desc: "Text redacted in place, layout preserved",
+    supported: true,
+  },
+  {
+    ext: "docx",
+    name: "Word documents",
+    desc: "Body, tables, headers — all scanned",
+    supported: true,
+  },
+  {
+    ext: "xlsx",
+    name: "Excel spreadsheets",
+    desc: "String + numeric cells, cleaned output",
+    supported: true,
+  },
+  {
+    ext: "img",
+    name: "Images & scans",
+    desc: "Blocked by default — no OCR yet",
+    supported: false,
+  },
+  {
+    ext: "?",
+    name: "Unknown types",
+    desc: "Blocked — never passed through",
+    supported: false,
+  },
 ];
 
 export function FileFormats() {
   return (
     <section className="relative py-24 lg:py-32">
-      <div className="absolute inset-0 -z-10 bg-grid-dot opacity-40" />
+      <div className="container-x">
+        <SectionHeader
+          eyebrow="File uploads"
+          title={<>Files keep their <span className="text-gradient">format</span>.</>}
+          desc="Text in PDF and Word is masked in place. Excel files come back as a cleaned copy with sensitive cells swapped. Scanned PDFs and images are blocked, not guessed at."
+        />
 
-      <div className="mx-auto max-w-[1248px] px-5 lg:px-8">
-        <div className="max-w-[640px]">
-          <Reveal>
-            <h2 className="text-[36px] lg:text-[48px] font-semibold serif tracking-[-0.02em] leading-[1.08] text-[var(--ink)]">
-              Files keep their format.
-            </h2>
-            <p className="mt-4 text-[17px] leading-[1.55] text-[var(--mist-dim)] font-medium">
-              Text in PDF and Word files is masked in place. Excel files come back as a cleaned copy with sensitive cells masked; charts, images and pivot tables are dropped. Scanned PDFs and images are blocked, not guessed at.
-            </p>
-          </Reveal>
+        <div className="mt-14 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {FORMATS.map((f, i) => (
+            <Reveal key={f.name} delay={i * 0.06}>
+              <SpotlightCard className="h-full p-6">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`grid h-11 w-11 place-items-center rounded-xl border text-[15px] font-bold ${
+                        f.supported
+                          ? "border-[var(--border-strong)] bg-[var(--subtle)] text-[var(--primary)]"
+                          : "border-[var(--border)] bg-transparent text-[var(--muted)]"
+                      }`}
+                    >
+                      {f.ext}
+                    </span>
+                    <div>
+                      <div className="text-[15px] font-medium text-[var(--ink)]">{f.name}</div>
+                      <div className="text-[13px] text-[var(--muted)] mt-0.5">{f.desc}</div>
+                    </div>
+                  </div>
+                  {f.supported ? (
+                    <span className="rounded-full bg-[rgba(47,213,143,.12)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--primary)]">
+                      Supported
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-[rgba(224,96,91,.12)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--danger)]">
+                      Blocked
+                    </span>
+                  )}
+                </div>
+              </SpotlightCard>
+            </Reveal>
+          ))}
         </div>
 
-        <div className="mt-14 grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {FORMATS.map((f, i) => {
-            const Icon = f.icon;
-            return (
-              <motion.div
-                key={f.ext}
-                initial={{ opacity: 0, y: 20, rotate: i % 2 === 0 ? -1.5 : 1.5 }}
-                whileInView={{ opacity: 1, y: 0, rotate: i % 2 === 0 ? -1.5 : 1.5 }}
-                viewport={{ once: true, margin: "-80px" }}
-                transition={{ duration: 0.5, delay: i * 0.08, ease: [0.16, 1, 0.3, 1] }}
-                className="refined-card rounded-2xl p-6 text-center"
-                style={{ transform: `rotate(${i % 2 === 0 ? -1.5 : 1.5}deg)` }}
-              >
-                <span
-                  className="grid place-items-center h-12 w-12 rounded-xl border border-[var(--border)] mx-auto"
-                  style={{ background: f.color, boxShadow: "0 6px 16px -6px rgba(47, 213, 143, 0.25)" }}
-                >
-                  <Icon className="h-6 w-6 text-[var(--ink)]" strokeWidth={2.5} />
-                </span>
-                <div className="mt-4 text-[15px] font-bold text-[var(--ink)]">
-                  {f.ext}
-                </div>
-                <div className="text-[12px] mono-code text-[var(--mist-dim)] mt-1">
-                  {f.name}
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
+        <p className="mt-6 text-[13px] text-[var(--muted)] max-w-[640px]">
+          File type is detected from magic bytes, not the extension. A .docx renamed as .txt is still processed as Word.
+        </p>
       </div>
     </section>
   );

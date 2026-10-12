@@ -1,61 +1,53 @@
 "use client";
 
-import { ShieldCheck } from "lucide-react";
-
-const COLUMNS = [
-  {
-    title: "Product",
-    links: ["How it works", "Coverage", "Architecture", "Customers"],
-  },
-  {
-    title: "Resources",
-    links: ["Documentation", "Security", "Trust center", "API reference"],
-  },
-  {
-    title: "Company",
-    links: ["About", "Customers", "Careers", "Contact"],
-  },
-];
+import { ShieldCheck, Github } from "lucide-react";
+import { REPO_URL } from "@/lib/site";
 
 export function Footer() {
   return (
-    <footer className="relative mt-auto border-t border-[var(--ink)]/[0.10] bg-[var(--surface)]/50">
-      <div className="absolute inset-0 -z-10 bg-grid-faint opacity-30" />
-      <div className="mx-auto max-w-[1248px] px-5 lg:px-8 py-14">
+    <footer className="relative mt-auto border-t border-[var(--border)] bg-[var(--surface)]/50">
+      <div className="container-x py-14">
         <div className="grid gap-10 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
+          {/* Brand */}
           <div>
             <a href="#top" className="flex items-center gap-2.5">
-              <span
-                className="grid place-items-center h-9 w-9 rounded-xl"
-                style={{
-                  background: "var(--primary)",
-                  border: "1px solid var(--primary)",
-                }}
-              >
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-[var(--primary)]">
                 <ShieldCheck className="h-5 w-5 text-[var(--bg)]" strokeWidth={2.5} />
               </span>
-              <span className="text-[15px] font-medium tracking-tight text-[var(--ink)] serif">
+              <span className="serif text-[15px] font-medium tracking-tight text-[var(--ink)]">
                 Doppel
               </span>
             </a>
-            <p className="mt-5 text-[14px] leading-[1.6] text-[var(--mist-dim)] max-w-[280px]">
+            <p className="mt-5 max-w-[280px] text-[14px] leading-[1.6] text-[var(--body)]">
               The privacy layer for the AI tools your teams already use.
             </p>
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="noopener"
+              className="mt-4 inline-flex items-center gap-2 text-[13px] text-[var(--muted)] transition-colors hover:text-[var(--primary)]"
+            >
+              <Github className="h-4 w-4" />
+              GitHub
+            </a>
           </div>
 
-          {COLUMNS.map((col) => (
+          {/* Link columns */}
+          {[
+            { title: "Product", links: [{ label: "How it works", href: "#how-it-works" }, { label: "Coverage", href: "#coverage" }, { label: "Platform", href: "#platform" }, { label: "Security", href: "#security" }] },
+            { title: "Resources", links: [{ label: "Documentation", href: REPO_URL }, { label: "Security model", href: "#security" }, { label: "FAQ", href: "#faq" }] },
+            { title: "Open source", links: [{ label: "GitHub", href: REPO_URL }, { label: "License (MIT)", href: REPO_URL + "/blob/develop/LICENSE" }, { label: "Changelog", href: REPO_URL + "/blob/develop/CHANGELOG.md" }] },
+          ].map((col) => (
             <div key={col.title}>
-              <div className="text-[11px] mono-code uppercase tracking-[0.18em] text-[var(--mist-dim)] mb-3.5">
-                {col.title}
-              </div>
+              <div className="eyebrow mb-3.5">{col.title}</div>
               <ul className="space-y-2.5">
                 {col.links.map((l) => (
-                  <li key={l}>
+                  <li key={l.label}>
                     <a
-                      href="#"
-                      className="text-[13.5px] text-[var(--mist-dim)] hover:text-[var(--lime)] transition-colors"
+                      href={l.href}
+                      className="text-[13.5px] text-[var(--body)] transition-colors hover:text-[var(--primary)]"
                     >
-                      {l}
+                      {l.label}
                     </a>
                   </li>
                 ))}
@@ -64,14 +56,14 @@ export function Footer() {
           ))}
         </div>
 
-        <div className="mt-12 pt-6 border-t border-[var(--ink)]/[0.10] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="text-[12px] text-[var(--mist-dim)]">
-            © {new Date().getFullYear()} Doppel. All rights reserved.
+        <div className="mt-12 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-t border-[var(--border)] pt-6">
+          <div className="text-[12px] text-[var(--muted)]">
+            © {new Date().getFullYear()} Doppel — AI Privacy Gateway. Open source under MIT.
           </div>
-          <div className="flex items-center gap-4 text-[12px] text-[var(--mist-dim)]">
-            <a href="#" className="hover:text-[var(--lime)] transition-colors">Privacy</a>
-            <a href="#" className="hover:text-[var(--lime)] transition-colors">Terms</a>
-            <a href="#" className="hover:text-[var(--lime)] transition-colors">Security</a>
+          <div className="flex items-center gap-4 text-[12px] text-[var(--muted)]">
+            <a href="#security" className="transition-colors hover:text-[var(--primary)]">Privacy</a>
+            <a href={REPO_URL + "/blob/develop/LICENSE"} target="_blank" rel="noopener" className="transition-colors hover:text-[var(--primary)]">License</a>
+            <a href="#faq" className="transition-colors hover:text-[var(--primary)]">Security</a>
           </div>
         </div>
       </div>
