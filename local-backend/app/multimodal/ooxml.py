@@ -80,13 +80,13 @@ def _strip_rels(xml: str, rels_name: str, dropped: set[str]) -> str:
 def scrub(path: str) -> list[str]:
     """Rewrite the package at `path` without the metadata above. Returns what was removed."""
     done: list[str] = []
-    with zipfile.ZipFile(path) as zin:
-        infos = zin.infolist()
-        low = {i.filename.lower(): i.filename for i in infos}
-        dropped = {n for n in low if n.startswith("docprops/thumbnail.") or n == "word/people.xml"}
-        fd, tmp = tempfile.mkstemp(suffix=".zip", dir=os.path.dirname(path) or None)
-        os.close(fd)
-        try:
+    fd, tmp = tempfile.mkstemp(suffix=".zip", dir=os.path.dirname(path) or None)
+    os.close(fd)
+    try:
+        with zipfile.ZipFile(path) as zin:
+            infos = zin.infolist()
+            low = {i.filename.lower(): i.filename for i in infos}
+            dropped = {n for n in low if n.startswith("docprops/thumbnail.") or n == "word/people.xml"}
             with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
                 for info in infos:
                     name, ln = info.filename, info.filename.lower()
@@ -118,10 +118,10 @@ def scrub(path: str) -> list[str]:
                             done.append("review_author_names_removed")
                         data = s2.encode()
                     zout.writestr(info, data)
-            shutil.move(tmp, path)
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
+        os.replace(tmp, path)     # after the source is closed: Windows cannot replace an open file
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
     return sorted(set(done))
 
 
