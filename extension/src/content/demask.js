@@ -99,6 +99,9 @@ function* textNodes(root, doc) {
  */
 function createDemasker(doc, send, opts = {}) {
   const gapMs = Number.isFinite(opts.gapMs) ? opts.gapMs : 1500;
+  const report = typeof opts.report === "function" ? opts.report : null;   // diagnostics: a count, never text
+  let replacedTotal = 0;
+  let reportTimer = null;
   let replacer = null;
   let version = null;
   let pending = null;
@@ -109,9 +112,15 @@ function createDemasker(doc, send, opts = {}) {
     if (!replacer) return;
     for (const n of textNodes(root, doc)) {
       if (isAssistantTextNode(n) && !isEditable(n)) {
-        applyToTextNode(n, replacer, written);
+        if (applyToTextNode(n, replacer, written)) noteReplaced();
       }
     }
+  }
+
+  function noteReplaced() {
+    replacedTotal++;
+    if (!report || reportTimer) return;
+    reportTimer = setTimeout(() => { reportTimer = null; report(replacedTotal); }, 1000);
   }
 
   const insideAssistant = (n) => {
@@ -148,7 +157,7 @@ function createDemasker(doc, send, opts = {}) {
       for (const r of records) {
         if (r.type === "characterData") {
           if (isAssistantTextNode(r.target) && !isEditable(r.target)) {
-            applyToTextNode(r.target, replacer, written);
+            if (applyToTextNode(r.target, replacer, written)) noteReplaced();
           }
         } else {
           for (const added of r.addedNodes) scan(added);
@@ -218,7 +227,7 @@ function createDemasker(doc, send, opts = {}) {
     scan,
     _onMutations: onMutations,
     _state: () => ({ replacer, version }),
-    _stop: () => { clearTimeout(pending); pending = null; }
+    _stop: () => { clearTimeout(pending); pending = null; clearTimeout(reportTimer); reportTimer = null; }
   };
 }
 
@@ -228,7 +237,9 @@ if (
   chrome.runtime &&
   chrome.runtime.sendMessage
 ) {
-  const d = createDemasker(document, (m) => chrome.runtime.sendMessage(m));
+  const d = createDemasker(document, (m) => chrome.runtime.sendMessage(m), {
+    report: (n) => { try { chrome.runtime.sendMessage({ type: "DEMASK_REPORT", replaced: n }); } catch { /* worker asleep */ } },
+  });
   d.start();
 
   let lastPath = location.pathname;

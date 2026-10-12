@@ -222,6 +222,9 @@ async function loadDiag() {
       `attached tabs: ${(r.attached || []).join(", ") || "none"}`,
       `last attach: ${r.diag.lastAttach || "never"}`,
       `last detach: ${r.diag.lastDetach || "never"}`,
+      `masking used: ${r.diag.lastMaskVault || "nothing masked yet"}`,
+      `real values, last mapping: ${r.diag.lastMapping || "never asked"}`,
+      `real values, on the page: ${r.diag.lastDemask || "nothing restored yet"}`,
       "--- recent requests ---",
       ...(r.trace || []).map((e) => `${e.t} ${e.method || ""} ${e.host || ""} ${e.kind || ""} ${e.outcome || ""} ${e.detail || ""}`.replace(/\s+/g, " ")),
     ];
