@@ -322,9 +322,12 @@ def main(out_dir: Path) -> None:
             assert c["text"][s["start"]:s["end"]], c
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "holdout_v1.jsonl"
-    path.write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in cases), encoding="utf-8")
+    # newline="\n": the file (and so its hash) must be byte-identical on every OS; text mode on Windows writes \r\n
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in cases))
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    (out_dir / "holdout_v1.sha256").write_text(digest + "\n")
+    with open(out_dir / "holdout_v1.sha256", "w", newline="\n") as f:
+        f.write(digest + "\n")
     print(f"wrote {len(cases)} cases, {sum(len(c['spans']) for c in cases)} gold spans -> {path}\nsha256 {digest}")
 
 
