@@ -493,7 +493,7 @@ AI_Privacy_Gateway/
 - **No ONNX.** GLiNER2 runs in PyTorch; measure speed on your hardware with `benchmark_tier2.py`.
 - **SpanMarker dropped.** PERSON kill test inconclusive (GLiNER2 at 0.953 F1, CI touches 0.97 but can't confirm). Dropped for simplicity.
 
----
+-----
 
 ## License
 
