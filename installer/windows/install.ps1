@@ -1,7 +1,8 @@
 # Install the local backend as a per-user scheduled task that starts at logon (Windows). Run from the repo root:
-#   $env:MODEL_REVISION="<sha>"; $env:CLOUD_URL="https://..."; $env:CLOUD_ENROLL_KEY="..."; .\installer\windows\install.ps1
+#   [$env:MODEL_REPO="<hf repo>"; $env:MODEL_REVISION="<sha>";] $env:CLOUD_URL="https://..."; $env:CLOUD_ENROLL_KEY="..."; .\installer\windows\install.ps1
 $ErrorActionPreference = "Stop"
-if (-not $env:MODEL_REVISION) { throw "set MODEL_REVISION to the full commit sha of the Tier 2 model to pin" }
+$modelRepo = if ($env:MODEL_REPO) { $env:MODEL_REPO } else { "Hager290/gliner2_FT" }
+$modelRev = if ($env:MODEL_REVISION) { $env:MODEL_REVISION } else { "63d7bc5d15ba2803d835dcd68260b4333f5ceecd" }   # pinned; override after validating a newer commit
 $root = (Resolve-Path "$PSScriptRoot\..\..").Path
 $app  = if ($env:DOPPEL_HOME) { $env:DOPPEL_HOME } else { Join-Path $env:LOCALAPPDATA "Doppel" }
 New-Item -ItemType Directory -Force -Path $app | Out-Null
@@ -13,7 +14,7 @@ New-Item -ItemType Directory -Force -Path "$app\app" | Out-Null
 Copy-Item -Recurse "$root\local-backend\app", "$root\local-backend\dlp_core" "$app\app"
 Get-ChildItem -Recurse "$app\app" -Include "test_*.py" | Remove-Item -Force   # runtime only
 Get-ChildItem -Recurse "$app\app" -Directory | Where-Object { $_.Name -eq "tests" -or $_.FullName -like "*\dlp_core\eval" } | Remove-Item -Recurse -Force
-& "$app\venv\Scripts\python.exe" "$root\scripts\fetch_model.py" --revision $env:MODEL_REVISION --dest "$app\model"
+& "$app\venv\Scripts\python.exe" "$root\scripts\fetch_model.py" --repo $modelRepo --revision $modelRev --dest "$app\model"
 
 # The launcher sets the environment; it lives in the user's profile (ACL: owner only) because it holds the enrollment key.
 $launcher = "$app\run.cmd"
