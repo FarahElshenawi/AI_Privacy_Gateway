@@ -43,3 +43,14 @@ def test_scanned_pdf_is_rejected_with_reason_not_passed_through(tmp_path):
 def test_corrupt_and_unknown_files_rejected():
     assert post("bad.docx", b"not a docx").status_code in (400, 422)
     assert post("x.bin", b"\x00\x01\x02\x03").status_code == 400
+
+
+def test_refusal_reason_is_logged_without_content(caplog):
+    import logging
+    doc = pymupdf.open(); pg = doc.new_page()
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 100, 40), False); pix.clear_with(255)
+    pg.insert_image(pymupdf.Rect(72, 72, 172, 112), pixmap=pix)
+    with caplog.at_level(logging.WARNING, logger="uvicorn.error"):
+        r = post("scan.pdf", doc.tobytes(), "application/pdf")
+    assert r.status_code == 422
+    assert any("process_file refused" in m and "no_extractable_text" in m for m in caplog.messages)

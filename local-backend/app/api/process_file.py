@@ -6,6 +6,7 @@ can warn the user.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import tempfile
@@ -23,6 +24,7 @@ from app.security.auth import verify_token
 from app.security.origin_check import check_origin
 
 router = APIRouter()
+_log = logging.getLogger("uvicorn.error")   # shows in the server console; never carries file content
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
@@ -63,7 +65,8 @@ async def process_file(
     t0 = time.perf_counter()
     try:
         result = await run_in_threadpool(MultimodalPipeline(strict=FILE_STRICT_DEFAULT).process, tmp_path, out_path, conversation_id)
-    except Exception:
+    except Exception as exc:
+        _log.warning("process_file refused: processing error (%s) for a %s file", type(exc).__name__, suffix or "no-extension")
         cloud_sync.record_event("fail_closed", entity_types={"PROCESSING_ERROR": 1}, entity_count=1,
                                 latency_ms=(time.perf_counter() - t0) * 1e3, conversation_id=conversation_id)
         _cleanup(tmp_path, out_path)
@@ -78,6 +81,8 @@ async def process_file(
         _cleanup(out_path)
         detail = {"error": result["error"], "blockers": result["blockers"], "warnings": result["warnings"],
                   "leak_types": sorted({l.get("type", "") for l in result["leaks"]})}
+        _log.warning("process_file refused: %s (type=%s blockers=%s leaks=%s degraded=%s)", result["error"], result["input_type"],
+                     result["blockers"], detail["leak_types"], result["degraded"])
         raise HTTPException(status_code=422 if (result["blockers"] or result["leaks"]) else 400, detail=detail)
 
     cloud_sync.record_event("file", entity_count=result["replacements_made"], latency_ms=elapsed_ms,
