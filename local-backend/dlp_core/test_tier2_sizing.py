@@ -1,4 +1,5 @@
 """Tier 2 must fit real inputs: windows, scaled budgets, cooperative deadline, strict files."""
+import os
 import time
 
 import pytest
@@ -83,12 +84,12 @@ def test_pipeline_uses_the_scaled_budget_and_reports_timeout_then_recovers():
 
 
 def test_file_strict_defaults_to_true_in_production_config(monkeypatch):
-    import importlib
-    import app.pipeline.engine as eng
-    monkeypatch.delenv("DLP_FILE_STRICT", raising=False)
-    try:
-        importlib.reload(eng)
-        assert eng.FILE_STRICT_DEFAULT is True
-    finally:
-        monkeypatch.setenv("DLP_FILE_STRICT", "false")
-        importlib.reload(eng)
+    # Fresh interpreter: reloading app.pipeline.engine in-process would replace the shared vault and
+    # masker that the API modules already hold, and break every later test.
+    import subprocess
+    import sys
+    env = {k: v for k, v in os.environ.items() if k != "DLP_FILE_STRICT"}
+    env.update(DLP_TIER2_ENABLED="false", DLP_VAULT_PERSIST="false", DLP_WARM_TIER2="false")
+    out = subprocess.run([sys.executable, "-c", "import app.pipeline.engine as e; print(e.FILE_STRICT_DEFAULT)"],
+                         capture_output=True, text=True, env=env, timeout=120)
+    assert out.stdout.strip() == "True", out.stderr[-500:]

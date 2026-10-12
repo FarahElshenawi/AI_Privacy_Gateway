@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Download the Tier 2 model at ONE pinned revision into a local directory.
 
-    python scripts/fetch_model.py --revision <40-char commit sha> [--dest local-backend/models/gliner2-pii]
+    python scripts/fetch_model.py --revision <40-char commit sha> [--repo <hf repo>] [--dest local-backend/models/gliner2-pii]
 
 The backend then loads it from disk (DLP_TIER2_MODEL=<dest>), so nothing is fetched at run time and
 the model cannot change underneath a deployment. Refuses a branch name or short hash: only a full
@@ -14,7 +14,8 @@ import re
 import sys
 from pathlib import Path
 
-REPO = "fastino/gliner2-privacy-filter-PII-multi"
+REPO = "Hager290/gliner2_FT"                      # fine-tuned from fastino/gliner2-privacy-filter-PII-multi
+BASE_REPO = "fastino/gliner2-privacy-filter-PII-multi"   # pass --repo to use the un-tuned base model
 
 
 def main() -> int:

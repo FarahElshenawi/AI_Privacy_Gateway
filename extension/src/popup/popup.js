@@ -78,7 +78,7 @@ toggle.addEventListener("click", () => {
 // --- Toggle: show real values in replies ---
 const demaskToggle = document.getElementById("demaskToggle");
 chrome.storage.local.get("demaskEnabled", (result) => {
-  demaskToggle.classList.toggle("active", result.demaskEnabled !== false);
+  demaskToggle.classList.toggle("active", result.demaskEnabled === true);
 });
 demaskToggle.addEventListener("click", () => {
   const isActive = demaskToggle.classList.toggle("active");

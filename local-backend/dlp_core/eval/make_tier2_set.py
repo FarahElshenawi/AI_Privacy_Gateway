@@ -181,9 +181,11 @@ def main(out_dir: Path) -> None:
         assert all(c["text"][s["start"]:s["end"]] for s in c["spans"])
     out_dir.mkdir(parents=True, exist_ok=True)
     p = out_dir / "tier2_v1.jsonl"
-    p.write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in cases), encoding="utf-8")
+    with open(p, "w", encoding="utf-8", newline="\n") as f:      # same bytes on every OS (hashed below)
+        f.write("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in cases))
     digest = hashlib.sha256(p.read_bytes()).hexdigest()
-    (out_dir / "tier2_v1.sha256").write_text(digest + "\n")
+    with open(out_dir / "tier2_v1.sha256", "w", newline="\n") as f:
+        f.write(digest + "\n")
     from collections import Counter
     n_by = Counter(s["label"] for c in cases for s in c["spans"])
     print(f"wrote {len(cases)} cases -> {p}\nsha256 {digest}\ngold spans: {dict(n_by)}\nbenign cases: {sum(1 for c in cases if not c['spans'])}")
