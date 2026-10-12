@@ -1,0 +1,17 @@
+# CI dependencies: the runtime requirements WITHOUT the Tier 2 model stack (torch, transformers, gliner2).
+# CI runs with DLP_TIER2_ENABLED=false; tests that need the real model skip themselves. Keep in sync with requirements.txt.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.8
+python-multipart>=0.0.9
+faker>=25.0
+pymupdf>=1.24
+python-docx>=1.1
+openpyxl>=3.1
+cryptography>=42.0
+
+
+# Dev/test
+pytest>=8.0
+httpx>=0.27
+keyring>=25  # OS credential store for the vault keys; optional, falls back to a 0600 file

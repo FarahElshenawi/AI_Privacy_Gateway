@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, getApiKey, setApiKey } from "../api/client";
-import { ShieldCheck, Server, Key, FileSignature } from "lucide-react";
+import { Server, Key, FileSignature } from "lucide-react";
+import { AdminLogCard, DetectionCard, DevicesCard, EnrollKeyCard } from "../components/FleetCards";
 
 export function Settings() {
   const [health, setHealth] = useState<string | null>(null);
@@ -29,42 +30,13 @@ export function Settings() {
           Organization
         </h1>
         <p className="mt-1 text-[14px] text-[var(--body)]">
-          Read-only organization info. Edit on the cloud backend directly.
+          Devices, detection settings and keys for your organization.
         </p>
       </div>
 
-      {/* Org card */}
-      <div className="card p-6">
-        <div className="flex items-start gap-4">
-          <span
-            className="grid place-items-center h-12 w-12 rounded-xl flex-shrink-0"
-            style={{
-              background: "var(--primary)",
-              border: "1px solid var(--primary)",
-            }}
-          >
-            <ShieldCheck className="h-6 w-6 text-[var(--bg)]" strokeWidth={2.25} />
-          </span>
-          <div className="flex-1">
-            <div className="text-[18px] font-semibold serif text-[var(--ink)]">
-              Acme Inc.
-            </div>
-            <div className="text-[13px] text-[var(--body)] mt-1">
-              The default organization enrolled in this cloud control plane.
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-4 text-[13px]">
-              <div>
-                <div className="eyebrow mb-1">Org ID</div>
-                <div className="mono text-[var(--ink)]">1</div>
-              </div>
-              <div>
-                <div className="eyebrow mb-1">Endpoints enrolled</div>
-                <div className="mono text-[var(--ink)]">1 (this dashboard)</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <DevicesCard />
+      <DetectionCard />
+      <EnrollKeyCard />
 
       {/* Connection card */}
       <div className="card p-6">
@@ -133,6 +105,8 @@ export function Settings() {
           <button type="submit" className="btn-primary px-4 rounded-lg text-[13px]">Save</button>
         </form>
       </div>
+
+      <AdminLogCard />
 
       {/* Exported policy snapshot */}
       {exportedPolicies && (

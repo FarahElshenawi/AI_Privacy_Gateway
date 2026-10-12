@@ -52,12 +52,25 @@ async function checkHealth() {
 }
 
 // --- Toggle protection ---
+let protectionLocked = false;
+chrome.storage.managed.get("protectionLocked", (policy) => {
+  void chrome.runtime.lastError;                       // no policy installed is the normal case
+  protectionLocked = !!policy && policy.protectionLocked === true;
+  if (protectionLocked) {
+    toggle.classList.add("active");
+    toggle.setAttribute("aria-disabled", "true");
+    toggle.title = "Protection is required by your organisation";
+    toggle.style.opacity = "0.6";
+    toggle.style.cursor = "not-allowed";
+  }
+});
 chrome.storage.local.get("protectionEnabled", (result) => {
-  const enabled = result.protectionEnabled !== false;
-  toggle.classList.toggle("active", enabled);
+  if (protectionLocked) return;
+  toggle.classList.toggle("active", result.protectionEnabled !== false);
 });
 
 toggle.addEventListener("click", () => {
+  if (protectionLocked) return;
   const isActive = toggle.classList.toggle("active");
   chrome.storage.local.set({ protectionEnabled: isActive });
 });
@@ -65,7 +78,7 @@ toggle.addEventListener("click", () => {
 // --- Toggle: show real values in replies ---
 const demaskToggle = document.getElementById("demaskToggle");
 chrome.storage.local.get("demaskEnabled", (result) => {
-  demaskToggle.classList.toggle("active", result.demaskEnabled !== false);
+  demaskToggle.classList.toggle("active", result.demaskEnabled === true);
 });
 demaskToggle.addEventListener("click", () => {
   const isActive = demaskToggle.classList.toggle("active");

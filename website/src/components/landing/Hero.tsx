@@ -1,80 +1,92 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowRight } from "lucide-react";
-import { BeforeAfterCard } from "./BeforeAfterCard";
+import { ArrowRight, Check } from "lucide-react";
 import { CTA_HREF, CTA_LABEL } from "@/lib/site";
+import { PromptDemo } from "./PromptDemo";
+
+const WORDS = [
+  { w: "Use" }, { w: "AI" }, { w: "without" },
+  { w: "exposing", g: true }, { w: "your", g: true }, { w: "data.", g: true },
+];
 
 export function Hero() {
   return (
-    <section
-      id="top"
-      className="relative pt-32 pb-24 lg:pt-40 lg:pb-32 overflow-hidden"
-    >
-      {/* Faint grid only — no glow, no drift */}
-      <div className="absolute inset-0 -z-10 bg-grid-strong" />
+    <section id="top" className="relative overflow-hidden pb-24 pt-32 lg:pb-32 lg:pt-40">
+      <div className="aurora"><i /><i /><i /></div>
+      <div className="bg-grid absolute inset-0 -z-0" />
 
-      <div className="mx-auto max-w-[1120px] px-5 lg:px-8">
-        {/* Eyebrow */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
+      <div className="container-x relative">
+        <motion.a
+          href="#how-it-works"
+          initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-          className="text-center mb-7"
+          transition={{ duration: 0.5 }}
+          className="mx-auto mb-8 flex w-fit items-center gap-2.5 rounded-full border border-[var(--border-strong)] bg-white/[0.03] py-1.5 pl-3 pr-4 text-[13px] text-[var(--body)] transition-colors hover:border-[var(--primary)]"
         >
-          <span className="eyebrow">AI Privacy Gateway</span>
-        </motion.div>
+          <span className="pulse-dot" />
+          <span>Protecting ChatGPT and Gemini today</span>
+          <ArrowRight className="h-3.5 w-3.5 text-[var(--primary)]" />
+        </motion.a>
 
-        {/* Headline — single sentence, no rotating phrase, no italic */}
-        <motion.h1
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
-          className="text-center font-semibold serif tracking-[-0.02em] text-[var(--ink)] text-[44px] sm:text-[60px] lg:text-[80px] leading-[1.05]"
-        >
-          Use AI without exposing your data.
-        </motion.h1>
+        <h1 className="serif mx-auto max-w-[940px] text-center text-[44px] leading-[1.04] sm:text-[64px] lg:text-[84px]">
+          {WORDS.map((x, i) => (
+            <motion.span
+              key={i}
+              initial={{ opacity: 0, y: 24, filter: "blur(8px)" }}
+              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+              transition={{ duration: 0.7, delay: 0.08 + i * 0.07, ease: [0.16, 1, 0.3, 1] }}
+              className={`mr-[0.25em] inline-block ${x.g ? "text-gradient" : "text-[var(--ink)]"}`}
+            >
+              {x.w}
+            </motion.span>
+          ))}
+        </h1>
 
-        {/* Subline — one sentence */}
         <motion.p
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
-          className="mx-auto mt-6 max-w-[640px] text-center text-[18px] leading-[1.6] text-[var(--body)]"
+          transition={{ duration: 0.6, delay: 0.6 }}
+          className="mx-auto mt-7 max-w-[660px] text-center text-[18px] leading-[1.65] text-[var(--body)]"
         >
-          Doppel replaces names, numbers and files with stand-ins on the
-          employee&apos;s device before the prompt is sent, and shows the real
-          values again in the answer on screen.
+          Doppel swaps names, numbers, secrets and files for realistic stand-ins on the employee&apos;s own device, before the prompt leaves the browser, then shows the real values again in the answer.
         </motion.p>
 
-        {/* Buttons — one emerald primary + one text link */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.25, ease: [0.16, 1, 0.3, 1] }}
-          className="mt-9 flex flex-col sm:flex-row items-center justify-center gap-5"
+          transition={{ duration: 0.6, delay: 0.72 }}
+          className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row"
         >
-          <a
-            href={CTA_HREF}
-            className="btn-lime px-6 py-3.5 text-[15px] inline-flex items-center gap-2 w-full sm:w-auto justify-center"
-          >
-            <span>{CTA_LABEL}</span>
+          <a href={CTA_HREF} className="btn-primary w-full sm:w-auto">
+            {CTA_LABEL}
             <ArrowRight className="h-4 w-4" />
           </a>
-          <a href="#how-it-works" className="text-link">
-            <span>See how it works</span>
-            <ArrowRight className="h-4 w-4" />
-          </a>
+          <a href="#demo" className="btn-ghost w-full sm:w-auto">Try the live demo</a>
         </motion.div>
 
-        {/* Before / After card — the centerpiece */}
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.45, ease: [0.16, 1, 0.3, 1] }}
-          className="mt-20"
+        <motion.ul
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.8, delay: 0.95 }}
+          className="mt-8 flex flex-wrap items-center justify-center gap-x-7 gap-y-2 text-[13px] text-[var(--muted)]"
         >
-          <BeforeAfterCard />
+          {["Masks on the device", "Fails closed, never open", "Admins see counts, never content"].map((t) => (
+            <li key={t} className="flex items-center gap-2">
+              <Check className="h-3.5 w-3.5 text-[var(--primary)]" strokeWidth={3} />
+              {t}
+            </li>
+          ))}
+        </motion.ul>
+
+        <motion.div
+          id="demo"
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.9, delay: 1.0, ease: [0.16, 1, 0.3, 1] }}
+          className="mt-16 lg:mt-20"
+        >
+          <PromptDemo />
         </motion.div>
       </div>
     </section>

@@ -28,7 +28,7 @@ const ev = () => ({ addListener() {} });
 globalThis.chrome = {
   storage: { local: mem(), session: mem(), onChanged: ev() },
   tabs: {
-    query: async () => [], onUpdated: ev(), onRemoved: ev(),
+    query: async () => [], onUpdated: ev(), onRemoved: ev(), onActivated: ev(),
     get: async () => ({ url: "https://chatgpt.com/" }),
   },
   action: { setBadgeText() {}, setBadgeBackgroundColor() {} },
@@ -509,6 +509,15 @@ test("MASK_SELECTED_FILE: unsupported file (image) → error with a readable rea
 
 
 // ── Reply demasking: GET_MAPPING (page-side demasker asks the worker) ─────────────────────
+test("GET_MAPPING: real values are NOT restored unless the user turned it on (default off)", async () => {
+  resetCalls(); mappingCalls = []; mappingDown = false;
+  await chrome.storage.local.set({ demaskEnabled: undefined });
+  const r = await sendMsg({ type: "GET_MAPPING", sinceVersion: null });
+  assert.equal(r.enabled, false);
+  assert.equal(mappingCalls.length, 0, "backend not asked, so no real value leaves the vault");
+  await chrome.storage.local.set({ demaskEnabled: true });     // the tests below exercise the switch ON
+});
+
 test("GET_MAPPING: returns the conversation's entries from the backend", async () => {
   resetCalls(); mappingCalls = []; mappingDown = false;
   const r = await sendMsg({ type: "GET_MAPPING", sinceVersion: null });

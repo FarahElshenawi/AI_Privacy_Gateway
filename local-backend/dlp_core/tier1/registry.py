@@ -22,9 +22,12 @@ def _generic_secret_label(m: re.Match) -> str:
 
 def _signature_recognizers() -> Iterator[PatternRecognizer]:
     for name, rx, min_entropy in P.API_KEY_SIGNATURES:
+        def entropy_ok(v: str, me: float = min_entropy) -> bool:
+            return V.shannon_entropy(v) >= me
+
         yield PatternRecognizer(
             name=f"sig_{name}", labels=("API_KEY",), pattern=re.compile(rx),
-            validator=(lambda v, me=min_entropy: V.shannon_entropy(v) >= me),
+            validator=entropy_ok,
             hard_evidence=True, score=0.98,
         )
 

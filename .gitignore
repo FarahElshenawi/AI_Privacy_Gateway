@@ -18,7 +18,7 @@ build/
 !.env.example
 *.local
 
-# --- Model artifacts (fetched via scripts/fetch_models.sh, not committed) ---
+# --- Model artifacts (fetched with scripts/fetch_model.py, not committed) ---
 local-backend/models/*.onnx
 local-backend/models/*.bin
 

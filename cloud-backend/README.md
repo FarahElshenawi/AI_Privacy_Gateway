@@ -265,7 +265,7 @@ Create a `.env` file at `cloud-backend/.env`:
 
 ```bash
 # Use Postgres in production (SQLite is fine for small deployments)
-DB_URL=postgresql+psycopg://doppel:doppel@localhost:5432/doppel
+DATABASE_URL=postgresql+psycopg://doppel:doppel@localhost:5432/doppel   # then: alembic upgrade head
 
 # Restrict CORS to the dashboard's domain only
 CORS_ORIGINS=https://doppel-dashboard.acme.io,https://doppel-cloud.internal.acme.io
@@ -596,3 +596,22 @@ See the parent repo's LICENSE.
 `GET /api/tenant-config` (admin key or device token) and `PUT /api/tenant-config` (admin key only) hold the
 org's `deny_terms` (2-100 chars each, max 500) and `tenant_domains` (hostnames, max 200). Local backends pull
 them with the policies. Deny terms are never written to the admin log; it records only the counts.
+
+
+## Production database (PostgreSQL) and migrations
+
+SQLite is created and upgraded automatically (fine for a pilot on one box). For production use PostgreSQL:
+
+```bash
+export DATABASE_URL=postgresql+psycopg://user:pass@host/doppel
+alembic upgrade head          # once per release, before starting the app
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+On any non-SQLite database the app refuses to start unless the schema is at the latest Alembic revision.
+Add a schema change with `alembic revision -m "..."`; a test fails if the migrations and the models drift apart.
+Constraints and indexes: one policy per `(org_id, entity_type)`, and an `(org_id, timestamp)` index on audit events.
+Statistics are computed in SQL.
+
+Newer endpoints: `GET /api/audit/timeseries?hours=24&bucket=hour|day` (activity chart, gaps filled with zeros) and
+`GET /api/policies/history` (who changed which policy from what to what).

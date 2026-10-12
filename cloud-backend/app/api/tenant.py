@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Annotated
+from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -29,6 +29,9 @@ class TenantConfigBody(BaseModel):
     model_config = ConfigDict(extra="ignore")
     deny_terms: list[str] = Field(default_factory=list, max_length=MAX_TERMS)
     tenant_domains: list[str] = Field(default_factory=list, max_length=MAX_DOMAINS)
+    # default: images inside Word/Excel/PDF are allowed with a warning, standalone images are blocked.
+    # block: any image blocks the file. warn: images are allowed and sent UNCHANGED, with a warning.
+    image_policy: Literal["default", "block", "warn"] = "default"
 
     @field_validator("deny_terms")
     @classmethod
@@ -65,7 +68,8 @@ def _load(db, org: Organization) -> TenantConfigResponse:
     if row is None:
         return TenantConfigResponse(version=0)
     return TenantConfigResponse(deny_terms=json.loads(row.deny_terms),
-                                tenant_domains=json.loads(row.tenant_domains), version=row.version)
+                                tenant_domains=json.loads(row.tenant_domains), image_policy=row.image_policy,
+                                version=row.version)
 
 
 @router.get("", response_model=TenantConfigResponse)
@@ -83,7 +87,8 @@ def put_tenant_config(body: TenantConfigBody, org: Organization = Depends(requir
         row.version += 1
     row.deny_terms = json.dumps(body.deny_terms)
     row.tenant_domains = json.dumps(body.tenant_domains)
+    row.image_policy = body.image_policy
     log_admin_action(db, org, "tenant_config.update",
-                     f"{len(body.deny_terms)} terms, {len(body.tenant_domains)} domains")
+                     f"{len(body.deny_terms)} terms, {len(body.tenant_domains)} domains, images={body.image_policy}")
     db.commit()
     return _load(db, org)

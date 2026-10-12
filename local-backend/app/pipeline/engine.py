@@ -9,11 +9,15 @@ vault, and the Demasker. Everything that can be tuned is an environment variable
     (defaults 0.05 / 0.5), capped at DLP_TIERn_MAX_S for prompts (10 / 20) and DLP_TIERn_FILE_MAX_S for
     file batches (60 / 300), so a 100 KB file batch is not judged like a chat prompt.
     DLP_MIN_SCORES_FILE   optional       JSON of per-label minimum scores from the bake-off (see app/thresholds.py)
+    DLP_IMAGE_POLICY      default default  default | block | warn: what to do with images (see multimodal/pipeline.py)
     DLP_FILE_STRICT       default true   /process_file fails (422) when any tier was degraded for the file
     DLP_TIER2_ENABLED     default true   false = run Tier 1 only (reported as degraded/uncovered)
     DLP_WARM_TIER2        default true   load the model at startup in a background thread
     DLP_STRICT            default false  true = safe_to_send is False whenever coverage is incomplete
     DLP_MAX_TEXT_CHARS    default 200000 /mask and /detect reject longer text (files are batched instead)
+
+Tier 2 model (env var):
+    DLP_TIER2_MODEL       optional       model id or local directory (see scripts/fetch_model.py)
 
 Vault persistence (env vars):
     DLP_VAULT_PERSIST     default true   false = use InMemoryVault (mappings die on restart)
@@ -34,7 +38,7 @@ from dlp_core.residual_scanner import scan as residual_scan
 from dlp_core.tier1 import Tier1Config, Tier1Engine
 from dlp_core.tier2 import Tier2Config, Tier2Engine
 from app.thresholds import load_min_scores
-from dlp_core.vault import ensure_vault_key_file, resolve_vault_key
+from dlp_core.vault import KeystoreSecret, ensure_vault_key_file, resolve_vault_key
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -48,9 +52,13 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-TIER1_TIMEOUT_S = _env_float("DLP_TIER1_TIMEOUT_S", 2.0)
-TIER2_TIMEOUT_S = _env_float("DLP_TIER2_TIMEOUT_S", 3.0)
+TIER1_TIMEOUT_S = _env_float("DLP_TIER1_TIMEOUT_S", 15.0)
+TIER2_TIMEOUT_S = _env_float("DLP_TIER2_TIMEOUT_S", 300.0)
 FILE_STRICT_DEFAULT = _env_bool("DLP_FILE_STRICT", True)
+IMAGE_POLICIES = ("default", "block", "warn")
+IMAGE_POLICY = os.environ.get("DLP_IMAGE_POLICY", "default").strip().lower()
+if IMAGE_POLICY not in IMAGE_POLICIES:
+    raise RuntimeError(f"DLP_IMAGE_POLICY must be one of {IMAGE_POLICIES}")
 STRICT_DEFAULT = _env_bool("DLP_STRICT", False)
 WARM_TIER2 = _env_bool("DLP_WARM_TIER2", True)
 MAX_TEXT_CHARS = int(_env_float("DLP_MAX_TEXT_CHARS", 200_000))
@@ -86,12 +94,15 @@ def _build_vault():
     db_path = os.environ.get("DLP_VAULT_DB_PATH",
                              str(Path.home() / ".pii_gateway_vault.db"))
     key = resolve_vault_key() or ensure_vault_key_file()
-    return PersistentVault(FernetSealer(key), db_path)
+    return PersistentVault(FernetSealer(key), db_path, key_store=KeystoreSecret())
 
 
 _vault = _build_vault()
 _tier1 = Tier1Engine(Tier1Config())
-_tier2 = Tier2Engine(Tier2Config(enabled=_env_bool("DLP_TIER2_ENABLED", True)))
+# DLP_TIER2_MODEL: a Hugging Face id or a local directory. Production installs point it at the pinned
+# snapshot made by scripts/fetch_model.py, so the model cannot change underneath a deployment.
+_tier2 = Tier2Engine(Tier2Config(enabled=_env_bool("DLP_TIER2_ENABLED", True),
+                                 model_name=os.environ.get("DLP_TIER2_MODEL") or Tier2Config().model_name))
 
 if os.environ.get("GLINER_ONNX_PATH"):
     import warnings
@@ -113,9 +124,13 @@ def detect(text: str) -> DetectionResult:
     return _pipeline.run(text)
 
 
-def apply_tenant_config(deny_terms, tenant_domains) -> None:
-    """Hot-apply the cloud-managed tenant lists to Tier 1 (deny terms + internal-only domains)."""
+def apply_tenant_config(deny_terms, tenant_domains, image_policy=None) -> None:
+    """Hot-apply the cloud-managed tenant settings: Tier 1 deny terms + internal-only domains, and the
+    image policy (default | block | warn; see app/multimodal/pipeline.py)."""
     from dataclasses import replace
+    global IMAGE_POLICY
+    if image_policy in IMAGE_POLICIES:
+        IMAGE_POLICY = image_policy
     _tier1.reconfigure(replace(_tier1.config, deny_terms=tuple(deny_terms), tenant_domains=tuple(tenant_domains)))
 
 

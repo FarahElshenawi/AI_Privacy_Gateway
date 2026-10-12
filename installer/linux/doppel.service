@@ -1,0 +1,15 @@
+[Unit]
+Description=Doppel local privacy backend
+After=network.target
+
+[Service]
+WorkingDirectory=@APP@/app
+EnvironmentFile=@ENV@
+ExecStart=@APP@/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8765
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

@@ -49,18 +49,19 @@ def test_merge_engine_floor_drops_weak_model_spans_only():
     assert len(m.merge([Span(0, 5, "PERSON", 0.5, "t2")], text)) == 1             # floors can be swapped live
 
 
-def test_engine_reads_the_file_at_startup(tmp_path, monkeypatch):
-    import importlib
-    import app.pipeline.engine as eng
+def test_engine_reads_the_file_at_startup(tmp_path):
+    # Fresh interpreter: reloading app.pipeline.engine in-process would replace the shared vault/masker
+    # that the API modules already hold, and break later tests.
+    import os
+    import subprocess
+    import sys
     f = tmp_path / "t.json"
     f.write_text('{"PERSON": 0.99}')
-    monkeypatch.setenv("DLP_MIN_SCORES_FILE", str(f))
-    try:
-        importlib.reload(eng)
-        assert eng._pipeline._merge._min == {"PERSON": 0.99}
-    finally:
-        monkeypatch.delenv("DLP_MIN_SCORES_FILE")
-        importlib.reload(eng)
+    env = dict(os.environ, DLP_MIN_SCORES_FILE=str(f), DLP_TIER2_ENABLED="false",
+               DLP_VAULT_PERSIST="false", DLP_WARM_TIER2="false")
+    out = subprocess.run([sys.executable, "-c", "import app.pipeline.engine as e; print(e._pipeline._merge._min)"],
+                         capture_output=True, text=True, env=env, timeout=120)
+    assert out.returncode == 0 and out.stdout.strip() == "{'PERSON': 0.99}", out.stderr[-500:]
 
 
 @pytest.fixture

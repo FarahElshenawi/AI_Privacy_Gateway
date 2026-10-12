@@ -106,6 +106,50 @@ export interface AuditStats {
   entity_type_breakdown: Record<string, number>;
 }
 
+export interface TimeseriesPoint {
+  t: string;                       // UTC bucket start, "...Z"
+  events: number;
+  entities: number;
+  by_event_type: Record<string, number>;
+}
+export interface Timeseries {
+  bucket: "hour" | "day";
+  hours: number;
+  points: TimeseriesPoint[];
+}
+
+export interface PolicyChange {
+  id: number;
+  entity_type: string;
+  old_action: string | null;
+  new_action: string | null;
+  changed_at: string;
+}
+
+export interface EndpointInfo {
+  id: number;
+  hostname: string | null;
+  version: string | null;
+  last_seen: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AdminAction {
+  id: number;
+  action: string;
+  target: string | null;
+  timestamp: string;
+}
+
+export type ImagePolicy = "default" | "block" | "warn";
+export interface TenantConfig {
+  deny_terms: string[];
+  tenant_domains: string[];
+  image_policy: ImagePolicy;
+  version: number;
+}
+
 export interface HealthStatus {
   status: string;
   service: string;
@@ -166,6 +210,27 @@ export const api = {
   /** Aggregated stats for the dashboard overview. */
   auditStats: (hours = 24, orgId = 1) =>
     request<AuditStats>(`/api/audit/stats?hours=${hours}&org_id=${orgId}`),
+
+  /** Event counts per hour/day bucket (zero-filled), for the activity chart. */
+  auditTimeseries: (hours = 24, bucket: "hour" | "day" = "hour") =>
+    request<Timeseries>(`/api/audit/timeseries?hours=${hours}&bucket=${bucket}`),
+
+  // ----- Policy history -----
+  policyHistory: (limit = 50) => request<PolicyChange[]>(`/api/policies/history?limit=${limit}`),
+
+  // ----- Devices -----
+  listEndpoints: () => request<EndpointInfo[]>("/api/endpoints"),
+  deactivateEndpoint: (id: number) => request<void>(`/api/endpoints/${id}`, { method: "DELETE" }),
+
+  // ----- Admin -----
+  adminLog: (limit = 50) => request<AdminAction[]>(`/api/admin/log?limit=${limit}`),
+  /** Issue a new enrollment key. It is shown once; existing devices keep working. */
+  rotateEnrollKey: () => request<{ enroll_key: string }>("/api/admin/rotate-enroll-key", { method: "POST" }),
+
+  // ----- Detection settings (deny terms, internal domains, image policy) -----
+  getTenantConfig: () => request<TenantConfig>("/api/tenant-config"),
+  putTenantConfig: (body: Omit<TenantConfig, "version">) =>
+    request<TenantConfig>("/api/tenant-config", { method: "PUT", body: JSON.stringify(body) }),
 
   /** Submit a new audit event (used by the local backend, not the dashboard). */
   submitAudit: (body: Omit<AuditEvent, "id" | "timestamp">) =>

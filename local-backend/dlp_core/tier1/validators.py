@@ -286,7 +286,7 @@ def internal_url_valid(value: str, suffixes: Iterable[str]) -> bool:
         host = urlsplit(value).hostname
     except ValueError:
         return False
-    return bool(host) and is_internal_host(host, suffixes)
+    return host is not None and bool(host) and is_internal_host(host, suffixes)
 
 
 def bare_internal_hostname_valid(host: str, suffixes: Iterable[str], tenant: Iterable[str] = ()) -> bool:
@@ -374,6 +374,8 @@ def basic_auth_valid(b64: str) -> bool:
 
 
 def pem_valid(block: str) -> bool:
+    # Keys pasted from JSON / env files carry literal backslash-n (`\\n`) instead of newlines.
+    block = block.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "")
     lines = [ln.strip() for ln in block.splitlines()]
     body = "".join(ln for ln in lines
                    if ln and not ln.startswith("-----") and ":" not in ln and not ln.startswith("="))

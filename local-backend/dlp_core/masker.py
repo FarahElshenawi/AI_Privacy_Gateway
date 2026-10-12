@@ -34,6 +34,8 @@ from .merge import MergedSpan
 from .policy import Action, StoragePolicy, route_label
 from .span import Evidence
 from .vault import InMemoryVault, VaultCollisionError
+from .debug_log import (log_mask_faker, log_mask_redact, log_mask_keep,
+                         log_mask_result, log_demask, log_demask_result)
 
 SurrogateProvider = Callable[[str, str], str]   # (label, real_value) -> candidate fake
 
@@ -126,23 +128,28 @@ class OffsetMasker:
                 if got is not None:
                     reps.append(got[0])
                     applied.append((Action.FAKER, got[1]))
+                    log_mask_faker(ms.label, real, got[0], got[1])  # debug
                     continue
                 # Degradation fallback: FAKER with no fake -> REDACT
+                log_mask_redact(ms.label, real, self._template.format(label=ms.label), False)  # debug
                 # Fall through to redaction handling below
 
             # Action.REDACT or degraded FAKER:
-            # Stored redaction applies when the entity was originally a REDACT action
-            # that is configured to be stored (e.g. IBAN, INTERNAL_URL).
-            # A degraded FAKER (e.g. PERSON when Faker fails) simply falls back to the template.
             if ms.action is Action.REDACT and decision.storage is StoragePolicy.STORE_FOR_DEMASKING:
-                # Need unique placeholder stored in vault so bijective demasking works
                 placeholder, reused = self._unique_redaction_for(conversation_id, ms.label, real)
                 reps.append(placeholder)
                 applied.append((Action.REDACT, reused))
+                log_mask_redact(ms.label, real, placeholder, True)  # debug: stored
+            elif ms.action is Action.KEEP:
+                reps.append(real)
+                applied.append((Action.KEEP, False))
+                log_mask_keep(ms.label, real)  # debug
             else:
                 # NO_STORE or degraded FAKER: plain template, zero vault entry
-                reps.append(self._template.format(label=ms.label))
+                placeholder = self._template.format(label=ms.label)
+                reps.append(placeholder)
                 applied.append((Action.REDACT, False))
+                log_mask_redact(ms.label, real, placeholder, False)  # debug: not stored
 
         # Right-to-left assembly in one pass: untouched tails and replacements are
         # collected from the end, then reversed. O(n) and offset-stable.
@@ -164,6 +171,7 @@ class OffsetMasker:
             infos.append(MaskedSpanInfo(ms.label, act, ms.start, ms.end,
                                         ms_start, ms_start + len(rep), ms.evidence, reused))
             delta += len(rep) - (ms.end - ms.start)
+        log_mask_result(len(text), len(masked), len(spans))  # debug: summary
         return MaskResult(masked, tuple(infos))
 
     # -- internals -------------------------------------------------------
@@ -241,9 +249,14 @@ class Demasker:
         def repl(m: re.Match[str]) -> str:
             nonlocal count
             count += 1
-            return lookup[m.group(0)]
+            fake = m.group(0)
+            real = lookup[fake]
+            log_demask(fake, real, conversation_id)  # debug: each restoration
+            return real
 
-        return pattern.sub(repl, text), count
+        result = pattern.sub(repl, text)
+        log_demask_result(count, conversation_id)  # debug: summary
+        return result, count
 
     def _compiled(self, conv: str) -> tuple[Optional[re.Pattern[str]], dict[str, str]]:
         version = self._vault.version(conv)

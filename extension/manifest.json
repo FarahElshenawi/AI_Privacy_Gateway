@@ -21,6 +21,9 @@
     "https://push.clients6.google.com/*",
     "http://127.0.0.1:8765/*"
   ],
+  "storage": {
+    "managed_schema": "managed_schema.json"
+  },
   "background": {
     "service_worker": "src/background/service-worker.js",
     "type": "module"

@@ -41,9 +41,25 @@ def iter_paragraphs(doc) -> list:
             if p in seen:
                 continue
             seen.add(p)
-            found.append(Paragraph(p, None))
+            found.append(Paragraph(p, None))  # type: ignore[arg-type]  # no story part is intended
     return found
 
 
 def paragraph_runs(paragraph) -> list:
     return [Run(r, paragraph) for r in paragraph._p.xpath(_RUN_XPATH)]
+
+
+ALT_ATTRS = ("descr", "title", "name")
+
+
+def iter_alt_elements(doc) -> list:
+    """Every picture/shape/drawing property element (wp:docPr, pic:cNvPr, ...) that can carry alt text,
+    a title or a file name, in document order. Materialised, de-duplicated by element."""
+    found, seen = [], set()
+    for root in _roots(doc):
+        for el in list(root.iter()):
+            tag = el.tag if isinstance(el.tag, str) else ""
+            if tag.rsplit("}", 1)[-1] in ("docPr", "cNvPr") and el not in seen:
+                seen.add(el)
+                found.append(el)
+    return found
