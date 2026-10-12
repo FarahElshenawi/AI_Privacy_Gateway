@@ -27,8 +27,10 @@ Vault persistence (env vars):
 """
 from __future__ import annotations
 
+import logging
 import os
 import threading
+import time
 from pathlib import Path
 
 from dlp_core import Demasker, FernetSealer, InMemoryVault, OffsetMasker, PersistentVault
@@ -40,7 +42,14 @@ from dlp_core.tier2 import Tier2Config, Tier2Engine
 from app.thresholds import load_min_scores
 from dlp_core.vault import KeystoreSecret, ensure_vault_key_file, resolve_vault_key
 
-
+# ── Timing diagnostics (metadata only, never document contents or PII) ──
+_LOG = logging.getLogger("doppel.timing")
+_LOG.setLevel(logging.INFO)
+if not _LOG.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s | %(message)s"))
+    _LOG.addHandler(_h)
+_LOG.propagate = False
 def _env_bool(name: str, default: bool) -> bool:
     return os.environ.get(name, str(default)).strip().lower() in ("1", "true", "yes", "on")
 
@@ -136,7 +145,30 @@ def apply_tenant_config(deny_terms, tenant_domains, image_policy=None) -> None:
 
 def detect_file(text: str) -> DetectionResult:
     """Same detectors, with the larger file-batch time budget."""
-    return _pipeline.run(text, mode="file")
+    _t0 = time.perf_counter()
+    result = _pipeline.run(text, mode="file")
+
+    _LOG.info(
+        "[Doppel Timing] stage=detection.total elapsed_ms=%.1f chars=%d degraded=%s blocked=%s",
+        (time.perf_counter() - _t0) * 1000,
+        len(text),
+        result.degraded,
+        result.blocked,
+    )
+
+    for report in result.reports:
+        _LOG.info(
+            "[Doppel Timing] stage=detection.detector name=%s status=%s elapsed_ms=%.1f "
+            "span_count=%d critical=%s error=%s",
+            report.name,
+            report.status.value,
+            report.elapsed_ms,
+            report.span_count,
+            report.critical,
+            report.error or "none",
+        )
+
+    return result
 
 
 def warm_tier2() -> None:

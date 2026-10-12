@@ -13,10 +13,12 @@ Fail-closed rules (success=False, no output file left behind):
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -27,6 +29,16 @@ from dlp_core.segments import DetectionBlocked, SegmentMasker
 from app.multimodal import ooxml
 from app.multimodal.file_type_detector import detect_file_type
 from app.multimodal.handlers import get_handler, zip_raw_scan
+
+# ── Timing diagnostics (metadata only, never document contents or PII) ──
+_LOG = logging.getLogger("doppel.timing")
+
+
+def _log_timing(stage: str, started: float, **metadata: object) -> None:
+    """Log timing metadata only; never log document contents or PII."""
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    details = " ".join(f"{k}={v}" for k, v in metadata.items())
+    _LOG.info("[Doppel Timing] stage=%s elapsed_ms=%.1f %s", stage, elapsed_ms, details)
 
 
 def _image_policy() -> str:
@@ -56,7 +68,10 @@ class MultimodalPipeline:
             return self._fail("error", "input_not_found")
         out = Path(output_path) if output_path else src.with_name(f"{src.stem}_masked{src.suffix}")
 
+        _t0 = time.perf_counter()
         ftype = detect_file_type(str(src))
+        _log_timing("file.detect_type", _t0, file_type=ftype, input_size=src.stat().st_size)
+
         if ftype == "unknown":
             return self._fail(ftype, "unknown_file_type")
         policy = _image_policy()
@@ -83,7 +98,9 @@ class MultimodalPipeline:
 
         handler = get_handler(ftype)
         try:
+            _t0 = time.perf_counter()
             extraction = handler.extract(str(src))
+            _log_timing("file.extract", _t0, file_type=ftype, segments=len(extraction.segments), blockers=len(extraction.blockers))
         except Exception as exc:  # noqa: BLE001 - never echo the message (may contain text)
             code = str(exc) if isinstance(exc, ValueError) and re.fullmatch(r"[a-z_]{3,40}", str(exc)) else type(exc).__name__
             return self._fail(ftype, f"parse_failed:{code}")
@@ -100,7 +117,9 @@ class MultimodalPipeline:
             return self._fail(ftype, "blocked", blockers=sorted(set(blockers)), warnings=extraction.warnings)
 
         try:
+            _t0 = time.perf_counter()
             result = self._segmenter.mask_segments(extraction.segments, conversation_id)
+            _log_timing("file.mask_segments", _t0, file_type=ftype, segments=len(extraction.segments), degraded=result.degraded, replacements=result.spans_masked)
         except DetectionBlocked:
             return self._fail(ftype, "detection_blocked_critical_detector_failed", warnings=extraction.warnings)
         except Exception as exc:  # noqa: BLE001
@@ -111,7 +130,9 @@ class MultimodalPipeline:
                               degraded=True, uncovered=result.uncovered_labels)
 
         try:
+            _t0 = time.perf_counter()
             post = handler.write(str(src), extraction, result, str(out))
+            _log_timing("file.write", _t0, file_type=ftype)
         except Exception as exc:  # noqa: BLE001
             self._remove(out)
             return self._fail(ftype, f"write_failed:{type(exc).__name__}", warnings=extraction.warnings)
@@ -120,14 +141,18 @@ class MultimodalPipeline:
             return self._fail(ftype, "blocked", blockers=post, warnings=extraction.warnings)
         if ftype in ("word", "excel"):
             try:
+                _t0 = time.perf_counter()
                 scrubbed = ooxml.scrub(str(out))
+                _log_timing("file.ooxml_scrub", _t0, file_type=ftype, scrubbed=scrubbed)
             except Exception as exc:  # noqa: BLE001 - an unscrubbed package must not be sent
                 self._remove(out)
                 return self._fail(ftype, f"scrub_failed:{type(exc).__name__}", warnings=extraction.warnings)
             if scrubbed:
                 extraction.warnings.append("metadata_scrubbed")
 
+        _t0 = time.perf_counter()
         leaks = self._verify(handler, str(out), ftype)
+        _log_timing("file.verify", _t0, file_type=ftype, leak_count=len(leaks))
         if leaks:
             self._remove(out)
         return {
