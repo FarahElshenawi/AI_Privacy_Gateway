@@ -37,9 +37,9 @@ The network layer still checks the upload: a request whose body matches a file t
 just masked (by SHA-256, single use) is passed through; anything else is masked or blocked as
 below. Gemini uses the network path only (no content script yet).
 
-## Replies: real values shown in the page
+## Replies: real values shown in the page (optional, off by default)
 
-The model only sees fake values, so its answers contain them. `src/content/demask.js` (ChatGPT
+The model only sees fake values, so its answers contain them. If you turn the popup switch on, `src/content/demask.js` (ChatGPT
 and Gemini) restores your real values in the text you see, as it streams in: it asks the service
 worker for this conversation's fake→real entries (`/api/mapping` on the local backend, versioned
 so an unchanged conversation costs one tiny call every 2 s), and a MutationObserver rewrites the
@@ -47,9 +47,7 @@ text nodes that contain a known fake. Replacement is longest-fake-first with wor
 the same rule as the backend's `/api/demask`. Because it works on rendered text, streaming and
 reloaded chat history both work. The composer is never touched.
 
-The popup switch **Show real values in replies** turns it off (new text only; reload to see the
-fakes again). Honest limit: the restored values are written into the page's DOM, so the site's
-own scripts can technically read them. `[REDACTED:TYPE]` placeholders for values that are not
+The popup switch **Show real values in replies** is **off by default**, because of an honest limit: the restored values are written into the page's DOM, so the site's own scripts can technically read them, which undoes part of what masking protects. Turn it on only when readability matters more than that. (Turning it off affects new text only; reload to see the fakes again.) `[REDACTED:TYPE]` placeholders for values that are not
 stored for restoring (e.g. card numbers) stay as they are.
 
 ## Fail closed

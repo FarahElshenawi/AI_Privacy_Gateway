@@ -28,12 +28,13 @@ User types prompt / uploads file in ChatGPT
   ChatGPT responds (with fake values)
          │
          ▼
-  Replies are restored in the page by a content script (display only):
-  surrogates are swapped back to the real values the user typed. Values that are
-  redacted without storage (e.g. [REDACTED:CREDIT_CARD]) stay redacted.
+  Replies show the surrogates by default. If the user turns on "Show real values",
+  a content script swaps them back in the page (display only), which puts the real
+  values in the DOM where the site's own scripts can read them. Values redacted
+  without storage (e.g. [REDACTED:CREDIT_CARD]) always stay redacted.
 ```
 
-**PII never crosses the network.** Only masked surrogates are sent to OpenAI.
+**PII never crosses the network.** Only masked surrogates are sent to OpenAI. The one exception to "never in the page" is the optional, off-by-default "Show real values" switch: with it on, real values are written into the page for you to read, and the site's scripts can see them.
 
 ---
 
@@ -55,7 +56,7 @@ User types prompt / uploads file in ChatGPT
 │  ┌──────────────────────────────────────────────────────────────┐    │
 │  │  Content scripts (convenience only, never the safety net)     │    │
 │  │  ├── file-interceptor: masks a picked file before upload      │    │
-│  │  └── demask: shows real values in replies (display only)      │    │
+│  │  └── demask: shows real values in replies (opt-in, display)    │    │
 │  └──────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────┘
                                      │ HTTP (127.0.0.1:8765)
@@ -483,7 +484,7 @@ AI_Privacy_Gateway/
 
 ## Limitations (Stated Honestly)
 
-- **Response demasking is display-only.** The extension restores real values in the ChatGPT/Gemini page (via `/api/mapping`) as replies stream in; values that are not stored for restoring (e.g. `[REDACTED:CREDIT_CARD]`) stay redacted, and the restored text lives in the page's DOM.
+- **Response demasking is optional and off by default.** With the popup switch on, the extension restores real values in the ChatGPT/Gemini page (via `/api/mapping`) as replies stream in; values that are not stored for restoring (e.g. `[REDACTED:CREDIT_CARD]`) stay redacted, and the restored text lives in the page's DOM, readable by the site's own scripts.
 - **No OCR.** Scanned PDFs and standalone images are rejected (fail-closed). Images inside Word/Excel are not read, so their content is not masked; `DLP_IMAGE_POLICY=block` refuses such files. Charts and SmartArt are blocked rather than read.
 - **Legacy Office files** (`.doc`, `.xls`) are not supported and are refused.
 - **Chrome shows a "debugging" bar** while Doppel is attached; that is the cost of network-layer interception.

@@ -225,7 +225,7 @@ export async function handleGetMapping(message, sender) {
     throw new BackendError("Mapping is only available on ChatGPT / Gemini", 400);
   }
   const st = await chrome.storage.local.get(DEMASK_KEY);
-  if (!(await protectionOn()) || st[DEMASK_KEY] === false) return { success: true, enabled: false };
+  if (!(await protectionOn()) || st[DEMASK_KEY] !== true) return { success: true, enabled: false };
 
   const vaultId = await resolveVaultId(sender.tab.id, null);
   const since = Number.isInteger(message.sinceVersion) ? message.sinceVersion : null;
