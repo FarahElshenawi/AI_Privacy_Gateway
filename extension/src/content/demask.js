@@ -6,7 +6,6 @@
  * boundary rather than by trying to infer message ownership from timing.
  */
 
-const POLL_MS = 2000;
 const SKIP_SELECTOR = "script,style,textarea,input,[contenteditable='true'],[contenteditable='']";
 
 /**
@@ -90,10 +89,20 @@ function* textNodes(root, doc) {
   for (let n = w.nextNode(); n; n = w.nextNode()) yield n;
 }
 
-function createDemasker(doc, send) {
+/**
+ * The mapping is asked for only while a reply is appearing, never on a timer:
+ *   - once at start (to restore replies already on the page),
+ *   - when the page shows activity inside an assistant message (a reply streaming in, or history
+ *     loading), at most once per `gapMs`, plus one final ask after the activity settles,
+ *   - when the tab becomes visible or the conversation changes.
+ * An idle tab makes no requests. The user's own typing and the page's other changes are ignored.
+ */
+function createDemasker(doc, send, opts = {}) {
+  const gapMs = Number.isFinite(opts.gapMs) ? opts.gapMs : 1500;
   let replacer = null;
   let version = null;
-  let timer = null;
+  let pending = null;
+  let lastRefresh = -Infinity;
   const written = new WeakMap();
 
   function scan(root) {
@@ -105,23 +114,54 @@ function createDemasker(doc, send) {
     }
   }
 
-  const observer = typeof MutationObserver !== "undefined"
-    ? new MutationObserver((records) => {
-        if (!replacer) return;
+  const insideAssistant = (n) => {
+    const el = n && (n.parentElement || n.parentNode || n);
+    return !!(el && el.closest && el.closest(ASSISTANT_SELECTOR));
+  };
 
-        for (const r of records) {
-          if (r.type === "characterData") {
-            if (isAssistantTextNode(r.target) && !isEditable(r.target)) {
-              applyToTextNode(r.target, replacer, written);
-            }
-          } else {
-            for (const added of r.addedNodes) scan(added);
-          }
+  /** True when a batch of DOM changes touches an assistant message (and is not our own rewrite). */
+  function touchesAssistant(records) {
+    for (const r of records) {
+      if (r.type === "characterData") {
+        const own = written.get(r.target) === r.target.nodeValue;
+        if (!own && insideAssistant(r.target)) return true;
+      } else {
+        if (insideAssistant(r.target)) return true;
+        for (const added of r.addedNodes || []) {
+          if (added.nodeType === 1 && ((added.matches && added.matches(ASSISTANT_SELECTOR)) ||
+              (added.querySelector && added.querySelector(ASSISTANT_SELECTOR)))) return true;
+          if (added.nodeType === 3 && insideAssistant(added)) return true;
         }
-      })
-    : null;
+      }
+    }
+    return false;
+  }
+
+  function requestRefresh() {
+    if (pending) return;                       // one is already scheduled
+    const wait = Math.max(0, lastRefresh + gapMs - Date.now());
+    pending = setTimeout(() => { pending = null; refresh(); }, wait);
+  }
+
+  function onMutations(records) {
+    if (replacer) {
+      for (const r of records) {
+        if (r.type === "characterData") {
+          if (isAssistantTextNode(r.target) && !isEditable(r.target)) {
+            applyToTextNode(r.target, replacer, written);
+          }
+        } else {
+          for (const added of r.addedNodes) scan(added);
+        }
+      }
+    }
+    if (touchesAssistant(records)) requestRefresh();
+  }
+
+  const observer = typeof MutationObserver !== "undefined" ? new MutationObserver(onMutations) : null;
 
   async function refresh() {
+    lastRefresh = Date.now();
     let res;
     try {
       res = await send({ type: "GET_MAPPING", sinceVersion: version });
@@ -158,10 +198,7 @@ function createDemasker(doc, send) {
       else doc.addEventListener("DOMContentLoaded", attach, { once: true });
     }
 
-    refresh();
-    timer = setInterval(() => {
-      if (!doc.hidden) refresh();
-    }, POLL_MS);
+    refresh();                                  // restore a reply that is already on the page
 
     doc.addEventListener("visibilitychange", () => {
       if (!doc.hidden) refresh();
@@ -179,8 +216,9 @@ function createDemasker(doc, send) {
     refresh,
     reset,
     scan,
+    _onMutations: onMutations,
     _state: () => ({ replacer, version }),
-    _stop: () => clearInterval(timer)
+    _stop: () => { clearTimeout(pending); pending = null; }
   };
 }
 
