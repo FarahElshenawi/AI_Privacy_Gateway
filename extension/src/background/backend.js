@@ -4,6 +4,16 @@ import { BACKEND_URL, FILE_TIMEOUT_MS, MASK_TIMEOUT_MS, MAX_ACTIVITY, TOKEN_KEY,
 // ─────────────────────────────────────────────────────────
 // Backend access
 // ─────────────────────────────────────────────────────────
+// Temporary diagnostics only. No file names, file contents, tokens, or PII are logged.
+function timingNow() { return performance.now(); }
+function timingLog(stage, elapsedMs, details = {}) {
+  try {
+    console.info("[Doppel Timing]", stage, {
+      elapsedMs: Math.round(elapsedMs * 100) / 100,
+      ...details,
+    });
+  } catch { /* diagnostics must never affect masking */ }
+}
 
 export async function fetchWithTimeout(url, opts, ms) {
   const ctrl = new AbortController();
@@ -44,15 +54,21 @@ export class BackendError extends Error {
  * (FormData) is rebuilt for the retry.
  */
 export async function backendPost(path, makeInit, timeoutMs) {
+  const isFileProcess = path === "/api/process_file";
   for (let attempt = 0; attempt < 2; attempt++) {
+    const tokenStart = timingNow();
     const token = await getToken();
+    if (isFileProcess) timingLog("background.get_token", timingNow() - tokenStart, { attempt: attempt + 1 });
     const init = makeInit();
     init.method = "POST";
     init.headers = { ...(init.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) };
     let resp;
+    const httpStart = timingNow();
     try {
       resp = await fetchWithTimeout(`${BACKEND_URL}${path}`, init, timeoutMs);
+      if (isFileProcess) timingLog("background.process_file_http_round_trip", timingNow() - httpStart, { attempt: attempt + 1, status: resp.status });
     } catch (e) {
+      if (isFileProcess) timingLog("background.process_file_http_round_trip", timingNow() - httpStart, { attempt: attempt + 1, outcome: e.name === "AbortError" ? "timeout" : "error" });
       throw new BackendError(e.name === "AbortError" ? "Local backend timed out" : "Local backend unreachable");
     }
     if (resp.status === 401 && attempt === 0) {
@@ -92,8 +108,11 @@ export async function maskFileViaBackend(fileBytes, filename, contentType, conve
     throw new BackendError(describeBackendError(resp.status, detail, "file"), resp.status);
   }
   const csv = (h) => (resp.headers.get(h) || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const responseReadStart = timingNow();
+  const responseBytes = new Uint8Array(await resp.arrayBuffer());
+  timingLog("background.process_file_response_body_read", timingNow() - responseReadStart, { responseSizeBytes: responseBytes.byteLength });
   return {
-    bytes: new Uint8Array(await resp.arrayBuffer()),
+    bytes: responseBytes,
     degraded: resp.headers.get("X-DLP-Degraded") === "true",
     uncovered: csv("X-DLP-Uncovered-Labels"),
     warnings: csv("X-DLP-Warnings"),

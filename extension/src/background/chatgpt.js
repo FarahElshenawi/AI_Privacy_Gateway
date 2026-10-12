@@ -6,6 +6,16 @@ import { block, cont } from "./cdp.js";
 // ─────────────────────────────────────────────────────────
 // Handlers
 // ─────────────────────────────────────────────────────────
+// Temporary diagnostics only: timing and byte counts, never names or contents.
+function timingNow() { return performance.now(); }
+function timingLog(stage, elapsedMs, details = {}) {
+  try {
+    console.info("[Doppel Timing]", stage, {
+      elapsedMs: Math.round(elapsedMs * 100) / 100,
+      ...details,
+    });
+  } catch { /* diagnostics must never affect masking */ }
+}
 
 export async function maskStringSlots(slots, vaultId) {
   const types = new Set();
@@ -240,50 +250,72 @@ export async function handleGetMapping(message, sender) {
 }
 
 export async function handleSelectedFile(message, sender) {
-  const enabled = await protectionOn();
-  if (!enabled) return { success: true, passthrough: true };
+  const totalStart = timingNow();
+  let inputSizeBytes = 0;
+  try {
+    const enabled = await protectionOn();
+    if (!enabled) return { success: true, passthrough: true };
 
-  if (!sender.tab || !isChatGPTUrl(sender.tab.url)) {
-    throw new BackendError("File interception is only available on ChatGPT", 400);
-  }
-  if (typeof message.bytesBase64 !== "string" || !message.bytesBase64) {
-    throw new BackendError("Missing file bytes", 400);
-  }
+    if (!sender.tab || !isChatGPTUrl(sender.tab.url)) {
+      throw new BackendError("File interception is only available on ChatGPT", 400);
+    }
+    if (typeof message.bytesBase64 !== "string" || !message.bytesBase64) {
+      throw new BackendError("Missing file bytes", 400);
+    }
 
-  const binary = atob(message.bytesBase64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const decodeStart = timingNow();
+    const binary = atob(message.bytesBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    inputSizeBytes = bytes.byteLength;
+    timingLog("worker.base64_to_bytes", timingNow() - decodeStart, { inputSizeBytes });
 
-  const vaultId = await resolveVaultId(sender.tab.id, null);
-  const res = await maskFileChecked(
-    bytes,
-    typeof message.filename === "string" ? message.filename : "uploaded_file",
-    typeof message.contentType === "string" ? message.contentType : "application/octet-stream",
-    vaultId,
-  );
+    const vaultStart = timingNow();
+    const vaultId = await resolveVaultId(sender.tab.id, null);
+    timingLog("worker.resolve_vault_id", timingNow() - vaultStart, { inputSizeBytes });
 
-  await recordFileMasked("browser-file", bytes.length, res);
+    const maskStart = timingNow();
+    const res = await maskFileChecked(
+      bytes,
+      typeof message.filename === "string" ? message.filename : "uploaded_file",
+      typeof message.contentType === "string" ? message.contentType : "application/octet-stream",
+      vaultId,
+    );
+    timingLog("worker.mask_file_checked", timingNow() - maskStart, { inputSizeBytes, outputSizeBytes: res.bytes ? res.bytes.length : 0 });
 
-  const tabId = sender.tab.id;
-  let authQueue = authorizedMaskedFiles.get(tabId);
-  if (!authQueue) {
-    authQueue = [];
+    const recordStart = timingNow();
+    await recordFileMasked("browser-file", bytes.length, res);
+    timingLog("worker.record_file_masked", timingNow() - recordStart, { inputSizeBytes, outputSizeBytes: res.bytes.length });
+
+    const tabId = sender.tab.id;
+    let authQueue = authorizedMaskedFiles.get(tabId);
+    if (!authQueue) {
+      authQueue = [];
+      authorizedMaskedFiles.set(tabId, authQueue);
+    }
+    const nowMs = Date.now();
+    authQueue = authQueue.filter((e) => e.expiresAt > nowMs);   // drop stale authorizations
     authorizedMaskedFiles.set(tabId, authQueue);
-  }
-  const nowMs = Date.now();
-  authQueue = authQueue.filter((e) => e.expiresAt > nowMs);   // drop stale authorizations
-  authorizedMaskedFiles.set(tabId, authQueue);
-  authQueue.push({
-    hash: await sha256Hex(res.bytes),
-    filename: message.filename || "uploaded_file",
-    expiresAt: Date.now() + 5 * 60 * 1000,
-  });
-  authorizedMaskedFiles.set(tabId, authQueue);       // persist the push
+    const hashStart = timingNow();
+    const hash = await sha256Hex(res.bytes);
+    timingLog("worker.sha256_masked_file", timingNow() - hashStart, { outputSizeBytes: res.bytes.length });
+    authQueue.push({
+      hash,
+      filename: message.filename || "uploaded_file",
+      expiresAt: Date.now() + 5 * 60 * 1000,
+    });
+    authorizedMaskedFiles.set(tabId, authQueue);       // persist the push
 
-  return {
-    success: true,
-    bytesBase64: bytesToBase64(res.bytes),
-    filename: fixFilename(message.filename || "uploaded_file", res.bytes, message.contentType),
-    contentType: message.contentType || "application/octet-stream",
-  };
+    const encodeStart = timingNow();
+    const bytesBase64 = bytesToBase64(res.bytes);
+    timingLog("worker.bytes_to_base64", timingNow() - encodeStart, { outputSizeBytes: res.bytes.length, base64Chars: bytesBase64.length });
+    return {
+      success: true,
+      bytesBase64,
+      filename: fixFilename(message.filename || "uploaded_file", res.bytes, message.contentType),
+      contentType: message.contentType || "application/octet-stream",
+    };
+  } finally {
+    timingLog("worker.selected_file_total", timingNow() - totalStart, { inputSizeBytes });
+  }
 }

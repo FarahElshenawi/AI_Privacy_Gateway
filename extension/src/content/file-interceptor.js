@@ -17,6 +17,17 @@
 const MAX_MESSAGE_BYTES = 40 * 1024 * 1024; // base64 + message overhead stays under Chrome's limit
 const SYNTHETIC = new WeakSet();            // events we dispatched ourselves (don't intercept twice)
 
+// Temporary diagnostics only: logs timing/size metadata, never file names or contents.
+function timingNow() { return performance.now(); }
+function timingLog(stage, elapsedMs, details = {}) {
+  try {
+    console.info("[Doppel Timing]", stage, {
+      elapsedMs: Math.round(elapsedMs * 100) / 100,
+      ...details,
+    });
+  } catch { /* diagnostics must never affect masking */ }
+}
+
 function bytesToBase64(bytes) {
   let binary = "";
   const chunk = 0x8000;
@@ -32,37 +43,69 @@ function base64ToBytes(b64) {
 
 /** Ask the service worker to mask one file. Resolves to a File (masked, or the original if
  *  protection is switched off). Rejects with a readable Error on any failure. */
-async function maskOneFile(file) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (bytes.byteLength > MAX_MESSAGE_BYTES) {
-    throw new Error("File is too large to check in the browser (limit 40 MB)");
-  }
-  let response;
+async function maskOneFile(file, fileIndex = 0) {
+  const totalStart = timingNow();
+  let fileSizeBytes = 0;
   try {
-    response = await chrome.runtime.sendMessage({
-      type: "MASK_SELECTED_FILE",
-      filename: file.name,
-      contentType: file.type || "application/octet-stream",
-      bytesBase64: bytesToBase64(bytes),
+    const readStart = timingNow();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    fileSizeBytes = bytes.byteLength;
+    timingLog("content.file_array_buffer", timingNow() - readStart, { fileIndex, sizeBytes: fileSizeBytes });
+    if (bytes.byteLength > MAX_MESSAGE_BYTES) {
+      throw new Error("File is too large to check in the browser (limit 40 MB)");
+    }
+
+    const encodeStart = timingNow();
+    const bytesBase64 = bytesToBase64(bytes);
+    timingLog("content.bytes_to_base64", timingNow() - encodeStart, { fileIndex, sizeBytes: fileSizeBytes, base64Chars: bytesBase64.length });
+
+    let response;
+    try {
+      const messageStart = timingNow();
+      try {
+        response = await chrome.runtime.sendMessage({
+          type: "MASK_SELECTED_FILE",
+          filename: file.name,
+          contentType: file.type || "application/octet-stream",
+          bytesBase64,
+        });
+      } finally {
+        timingLog("content.send_message_round_trip", timingNow() - messageStart, { fileIndex, sizeBytes: fileSizeBytes });
+      }
+    } catch (e) {
+      throw new Error("Doppel extension is not reachable: " + e.message);
+    }
+    if (!response || !response.success) {
+      throw new Error((response && response.error) || "File masking failed");
+    }
+    if (response.passthrough) return file;
+
+    const decodeStart = timingNow();
+    const maskedBytes = base64ToBytes(response.bytesBase64);
+    timingLog("content.base64_to_bytes", timingNow() - decodeStart, { fileIndex, responseSizeBytes: maskedBytes.byteLength });
+    const constructStart = timingNow();
+    const result = new File([maskedBytes], response.filename || file.name, {
+      type: response.contentType || file.type || "application/octet-stream",
+      lastModified: file.lastModified,
     });
-  } catch (e) {
-    throw new Error("Doppel extension is not reachable: " + e.message);
+    timingLog("content.construct_file", timingNow() - constructStart, { fileIndex, responseSizeBytes: maskedBytes.byteLength });
+    return result;
+  } finally {
+    timingLog("content.file_total", timingNow() - totalStart, { fileIndex, sizeBytes: fileSizeBytes });
   }
-  if (!response || !response.success) {
-    throw new Error((response && response.error) || "File masking failed");
-  }
-  if (response.passthrough) return file;
-  return new File([base64ToBytes(response.bytesBase64)], response.filename || file.name, {
-    type: response.contentType || file.type || "application/octet-stream",
-    lastModified: file.lastModified,
-  });
 }
 
 /** Mask every file; all-or-nothing. */
 async function maskAll(files) {
+  const totalStart = timingNow();
+  const totalInputBytes = files.reduce((sum, file) => sum + (file && Number.isFinite(file.size) ? file.size : 0), 0);
   const out = [];
-  for (const f of files) out.push(await maskOneFile(f));
-  return out;
+  try {
+    for (let i = 0; i < files.length; i++) out.push(await maskOneFile(files[i], i));
+    return out;
+  } finally {
+    timingLog("content.mask_all_total", timingNow() - totalStart, { fileCount: files.length, totalInputBytes });
+  }
 }
 
 function toDataTransfer(files) {

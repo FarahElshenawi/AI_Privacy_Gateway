@@ -60,3 +60,4 @@ local-backend/dlp_core/eval/__pycache__/
 *.pem
 *.key
 *.p12
+local-backend/models/
