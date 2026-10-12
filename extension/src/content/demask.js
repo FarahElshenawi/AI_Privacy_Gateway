@@ -103,6 +103,7 @@ function createDemasker(doc, send, opts = {}) {
   let replacedTotal = 0;
   let reportTimer = null;
   let replacer = null;
+  let entriesSeen = null;
   let version = null;
   let pending = null;
   let lastRefresh = -Infinity;
@@ -117,10 +118,22 @@ function createDemasker(doc, send, opts = {}) {
     }
   }
 
+  /** Diagnostics only (counts, never text): why nothing was restored. */
+  function probe() {
+    let assistantNodes = 0, fakesInAssistant = 0, fakesElsewhere = 0;
+    const fakes = (entriesSeen || []).map((e) => e.fake).filter(Boolean);
+    for (const n of textNodes(doc.documentElement || doc.body, doc)) {
+      const inA = isAssistantTextNode(n);
+      if (inA) assistantNodes++;
+      if (fakes.some((f) => n.nodeValue.includes(f))) { if (inA) fakesInAssistant++; else fakesElsewhere++; }
+    }
+    return { entries: fakes.length, assistantNodes, fakesInAssistant, fakesElsewhere };
+  }
+
   function noteReplaced() {
     replacedTotal++;
     if (!report || reportTimer) return;
-    reportTimer = setTimeout(() => { reportTimer = null; report(replacedTotal); }, 1000);
+    reportTimer = setTimeout(() => { reportTimer = null; report(replacedTotal, probe()); }, 1000);
   }
 
   const insideAssistant = (n) => {
@@ -188,11 +201,13 @@ function createDemasker(doc, send, opts = {}) {
 
     if (res.changed) {
       replacer = buildReplacer(res.entries);
+      entriesSeen = res.entries;
       version = res.version;
       scan(doc.documentElement || doc.body);
     } else if (typeof res.version === "number") {
       version = res.version;
     }
+    if (report) report(replacedTotal, probe());
   }
 
   function start() {
@@ -227,6 +242,7 @@ function createDemasker(doc, send, opts = {}) {
     scan,
     _onMutations: onMutations,
     _state: () => ({ replacer, version }),
+    _probe: probe,
     _stop: () => { clearTimeout(pending); pending = null; clearTimeout(reportTimer); reportTimer = null; }
   };
 }
@@ -238,7 +254,7 @@ if (
   chrome.runtime.sendMessage
 ) {
   const d = createDemasker(document, (m) => chrome.runtime.sendMessage(m), {
-    report: (n) => { try { chrome.runtime.sendMessage({ type: "DEMASK_REPORT", replaced: n }); } catch { /* worker asleep */ } },
+    report: (n, probe) => { try { chrome.runtime.sendMessage({ type: "DEMASK_REPORT", replaced: n, probe }); } catch { /* worker asleep */ } },
   });
   d.start();
 
