@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 
 const mod = { exports: {} };
 new Function("module", readFileSync(new URL("../src/content/demask.js", import.meta.url), "utf8"))(mod);
-const { buildReplacer, applyToTextNode, isEditable, isAssistantTextNode, createDemasker } = mod.exports;
+const { buildReplacer, applyToTextNode, isEditable, isAssistantTextNode, createDemasker, applyAcrossBlock } = mod.exports;
 
 const E = (fake, real) => ({ fake, real });
 
@@ -200,4 +200,33 @@ test("text the demasker already rewrote needs no new request; unknown new text d
   await sleep(60);
   d._stop();
   assert.equal(calls - before, 1);
+});
+
+// ── a fake split across several text nodes (streamed or span-per-word replies) ───────────
+test("a fake split over several text nodes is restored, and neighbours are kept", () => {
+  const parent = el(false, true);
+  const nodes = [textNode("Hi, Ken", parent), textNode("neth ", parent), textNode("Bennett! 👋 and Jean", parent), textNode(" Foster.", parent)];
+  const r = buildReplacer([E("Kenneth Bennett", "Farah Elshenawy"), E("Jean Foster", "Omar Ali")]);
+  const changed = applyAcrossBlock({}, fakeDoc(nodes), r, new WeakMap());
+  assert.equal(changed, true);
+  assert.equal(nodes.map((n) => n.nodeValue).join(""), "Hi, Farah Elshenawy! 👋 and Omar Ali.");
+});
+
+test("a split fake in a user message or the composer is left alone", () => {
+  const user = el(false, false), box = el(true, true);
+  const a = [textNode("Hi, Ken", user), textNode("neth Bennett", user)];
+  const b = [textNode("Ken", box), textNode("neth Bennett", box)];
+  const r = buildReplacer([E("Kenneth Bennett", "Farah")]);
+  assert.equal(applyAcrossBlock({}, fakeDoc(a), r, new WeakMap()), false);
+  assert.equal(applyAcrossBlock({}, fakeDoc(b), r, new WeakMap()), false);
+  assert.equal(a[0].nodeValue + a[1].nodeValue, "Hi, Kenneth Bennett");
+});
+
+test("streamed reply with a split fake is restored through the mutation path", async () => {
+  const parent = el(false, true);
+  const nodes = [textNode("Hi, Ken", parent), textNode("neth Bennett!", parent)];
+  const d = createDemasker(fakeDoc(nodes), async () => ({ success: true, enabled: true, changed: true, version: 1, entries: [E("Kenneth Bennett", "Farah")] }), { gapMs: 5 });
+  await d.refresh();
+  assert.equal(nodes.map((n) => n.nodeValue).join(""), "Hi, Farah!");
+  d._stop();
 });
