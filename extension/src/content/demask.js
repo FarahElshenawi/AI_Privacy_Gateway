@@ -24,6 +24,7 @@ const SKIP_SELECTOR = "script,style,textarea,input,[contenteditable='true'],[con
 const ASSISTANT_SELECTOR = [
   '[data-message-author-role="assistant"]',
   '[data-message-author-role="model"]',
+  '[data-turn="assistant"]',
   'model-response'
 ].join(",");
 
@@ -138,6 +139,21 @@ function* textNodes(root, doc) {
   for (let n = w.nextNode(); n; n = w.nextNode()) yield n;
 }
 
+/** Ancestor chain of a text node as tag names plus a few structural attributes (never text). */
+function describePath(node) {
+  const parts = [];
+  let el = node.parentElement || null;
+  for (let i = 0; el && i < 7; i++, el = el.parentElement) {
+    let s = (el.tagName || "?").toLowerCase();
+    for (const a of ["data-message-author-role", "data-turn", "data-testid", "role"]) {
+      const v = el.getAttribute && el.getAttribute(a);
+      if (v) s += `[${a}=${String(v).slice(0, 32)}]`;
+    }
+    parts.push(s);
+  }
+  return parts.reverse().join(">");
+}
+
 /**
  * The mapping is asked for only while a reply is appearing, never on a timer:
  *   - once at start (to restore replies already on the page),
@@ -181,16 +197,27 @@ function createDemasker(doc, send, opts = {}) {
     blockPass(blocks);
   }
 
-  /** Diagnostics only (counts, never text): why nothing was restored. */
+  /** Diagnostics only (tag names, a few structural attribute values, counts; never page text). */
   function probe() {
     let assistantNodes = 0, fakesInAssistant = 0, fakesElsewhere = 0;
     const fakes = (entriesSeen || []).map((e) => e.fake).filter(Boolean);
+    const where = [];
     for (const n of textNodes(doc.documentElement || doc.body, doc)) {
       const inA = isAssistantTextNode(n);
       if (inA) assistantNodes++;
-      if (fakes.some((f) => n.nodeValue.includes(f))) { if (inA) fakesInAssistant++; else fakesElsewhere++; }
+      if (fakes.some((f) => n.nodeValue.includes(f))) {
+        if (inA) fakesInAssistant++; else fakesElsewhere++;
+        if (where.length < 3) where.push(describePath(n));
+      }
     }
-    return { entries: fakes.length, assistantNodes, fakesInAssistant, fakesElsewhere };
+    const roles = {};
+    if (doc.querySelectorAll) {
+      for (const el of doc.querySelectorAll("[data-message-author-role],[data-turn]")) {
+        const k = el.getAttribute("data-message-author-role") || `turn:${el.getAttribute("data-turn")}`;
+        roles[k] = (roles[k] || 0) + 1;
+      }
+    }
+    return { entries: fakes.length, assistantNodes, fakesInAssistant, fakesElsewhere, where, roles, replaced: replacedTotal };
   }
 
   function noteReplaced() {
@@ -324,6 +351,11 @@ if (
     report: (n, probe) => { try { chrome.runtime.sendMessage({ type: "DEMASK_REPORT", replaced: n, probe }); } catch { /* worker asleep */ } },
   });
   d.start();
+  if (chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((m, _sender, reply) => {
+      if (m && m.type === "DOPPEL_PROBE") { try { reply({ success: true, probe: d._probe() }); } catch { reply({ success: false }); } }
+    });
+  }
 
   let lastPath = location.pathname;
   setInterval(() => {

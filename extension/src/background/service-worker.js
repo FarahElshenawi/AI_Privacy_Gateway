@@ -29,6 +29,14 @@ import { handleFilePut, handleGetMapping, handlePrepare, handleReserve, handleSe
 import { handleGeminiSend, handleGeminiUpload } from "./gemini.js";
 import { attachDebuggerToTab, detachDebuggerFromTab, reattachAfterDetach, syncAllTabs, updateBadge } from "./attach.js";
 
+const num = (v) => (Number.isInteger(v) ? v : "?");
+/** One line, counts and structure only: why a reply was or was not restored. */
+function describeProbe(tabId, replaced, q = {}) {
+  const roles = q.roles && typeof q.roles === "object" ? Object.entries(q.roles).map(([k, v]) => `${String(k).slice(0, 24)}:${num(v)}`).join(" ") : "?";
+  const where = Array.isArray(q.where) ? q.where.map((w) => String(w).slice(0, 200)).join(" | ") : "";
+  return `tab ${tabId}: ${num(replaced)} restored; fakes known ${num(q.entries)}, assistant text nodes ${num(q.assistantNodes)}, fakes in replies ${num(q.fakesInAssistant)}, elsewhere ${num(q.fakesElsewhere)}; roles on page [${roles}]; fake found at [${where}] at ${new Date().toLocaleTimeString()}`;
+}
+
 // ─────────────────────────────────────────────────────────
 // CDP event router
 // ─────────────────────────────────────────────────────────
@@ -157,7 +165,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (sender.tab && Number.isInteger(message.replaced)) {
             const q = message.probe && typeof message.probe === "object" ? message.probe : {};
             const num = (v) => (Number.isInteger(v) ? v : "?");
-            setDiag({ lastDemask: `tab ${sender.tab.id}: ${message.replaced} restored; fakes known ${num(q.entries)}, assistant text nodes ${num(q.assistantNodes)}, fakes seen in replies ${num(q.fakesInAssistant)}, elsewhere ${num(q.fakesElsewhere)} at ${new Date().toLocaleTimeString()}` });
+            setDiag({ lastDemask: describeProbe(sender.tab.id, message.replaced, q) });
           }
           sendResponse({ success: true });
           break;
@@ -217,6 +225,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         case "GET_DIAG": {
+          // Ask each attached chat tab for a fresh, content-free look at its page right now.
+          for (const tabId of [...attachedTabs]) {
+            try {
+              const res = await Promise.race([chrome.tabs.sendMessage(tabId, { type: "DOPPEL_PROBE" }), new Promise((_, rej) => setTimeout(rej, 1200))]);
+              if (res && res.success) setDiag({ lastDemask: describeProbe(tabId, res.probe.replaced, res.probe) });
+            } catch { /* tab has no page script (not reloaded yet) */ }
+          }
           const r = await chrome.storage.session.get(["trace", "diag"]);
           sendResponse({ success: true, trace: r.trace || [], diag: r.diag || {}, attached: [...attachedTabs] });
           break;
