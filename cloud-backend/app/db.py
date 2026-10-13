@@ -144,7 +144,19 @@ def log_admin_action(db, org, action: str, target: str = "") -> None:
 
 # === Database setup ===
 
-DEFAULT_DB_URL = "sqlite:///./cloud_backend.db"
+def _default_db_path() -> str:
+    """Absolute path of the default SQLite file, anchored to this backend's directory.
+
+    The old default was relative (`sqlite:///./cloud_backend.db`), so the file landed in
+    whatever directory the server was launched from — one launch from the repo root and the
+    next from `cloud-backend/` silently used two different databases. Anchoring it here
+    keeps exactly one canonical database no matter the cwd. Set DATABASE_URL to override.
+    """
+    from pathlib import Path
+    return str(Path(__file__).resolve().parents[1] / "cloud_backend.db")
+
+
+DEFAULT_DB_URL = f"sqlite:///{_default_db_path()}"
 _engines: dict[str, object] = {}
 _engines_lock = threading.Lock()
 

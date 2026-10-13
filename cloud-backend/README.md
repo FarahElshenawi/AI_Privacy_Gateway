@@ -472,7 +472,7 @@ file in the working directory). All are optional.
 
 | Variable | Default | Description |
 |---|---|---|
-| `DB_URL` | `sqlite:///./cloud_backend.db` | SQLAlchemy database URL. Use `postgresql+psycopg://user:pass@host/db` for Postgres. |
+| `DB_URL` | `<cloud-backend dir>/cloud_backend.db` | SQLAlchemy database URL. Use `postgresql+psycopg://user:pass@host/db` for Postgres. |
 | `CORS_ORIGINS` | `*` | Comma-separated list of allowed origins for the dashboard. Restrict in production. |
 | `HOST` | `0.0.0.0` | Bind address. Use `127.0.0.1` behind a reverse proxy. |
 | `PORT` | `8000` | Listen port. |

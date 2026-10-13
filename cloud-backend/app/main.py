@@ -7,7 +7,7 @@ Run with:
     uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 Environment:
-    DATABASE_URL         database URL (default: sqlite:///./cloud_backend.db)
+    DATABASE_URL         database URL (default: <cloud-backend dir>/cloud_backend.db)
     CLOUD_ADMIN_API_KEY  ADMIN key of the default organization (>= 24 chars): dashboard, policy edits, audit reads.
     CLOUD_ENROLL_KEY     ENROLLMENT key (>= 24 chars, different from the admin key): the only secret that goes on
                          employee machines; it can only register devices. If unset on first
