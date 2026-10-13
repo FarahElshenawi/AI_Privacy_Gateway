@@ -38,6 +38,31 @@ function buildReplacer(entries) {
   }
   if (map.size === 0) return null;
 
+  // A model often shortens or re-cases a fake name ("Mark" for "Mark Allen", "MARK ALLEN").
+  // Add those forms so they are restored too. Exact entries always win over derived ones.
+  const NAME = /^\p{Lu}[\p{L}'’-]+(?: \p{Lu}[\p{L}'’-]+){1,2}$/u;
+  const COMMON = new Set(["Will", "May", "Grant", "Bill", "Hope", "Faith", "Rose", "Page",
+    "Art", "Gray", "Brown", "White", "Young", "King", "Long", "Hall", "Lane", "Rich", "Case"]);
+  const exact = new Map(map);
+  const tally = new Map();                    // token -> Set of real tokens it would map to
+  const note = (t, r) => { if (!tally.has(t)) tally.set(t, new Set()); tally.get(t).add(r); };
+  for (const [fake, real] of exact) {
+    if (!NAME.test(fake) || !NAME.test(real)) continue;
+    const ft = fake.split(" "), rt = real.split(" ");
+    if (ft.length !== rt.length) continue;
+    ft.forEach((t, i) => { if (t.length >= 3 && !COMMON.has(t)) note(t, rt[i]); });
+  }
+  for (const [t, reals] of tally) {
+    if (reals.size === 1 && !exact.has(t)) map.set(t, [...reals][0]);   // unambiguous only
+  }
+  const upper = new Map();                    // ALL-CAPS variants of every name-like entry
+  for (const [f, r] of [...map]) {
+    if (/\p{L}/u.test(f) && f !== f.toUpperCase() && !map.has(f.toUpperCase()) && !upper.has(f.toUpperCase())) {
+      upper.set(f.toUpperCase(), /@|:/.test(f) ? r : r.toUpperCase());
+    }
+  }
+  for (const [f, r] of upper) map.set(f, r);
+
   const word = (ch) => /[A-Za-z0-9_]/.test(ch);
   const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const alts = [...map.keys()]
