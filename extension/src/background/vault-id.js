@@ -9,7 +9,20 @@ export async function tabConvId(tabId) {
   try { return convIdFromUrl((await chrome.tabs.get(tabId)).url); } catch { return null; }
 }
 
-export async function resolveVaultId(tabId, serverConvId) {
+// Several things ask for a tab's vault at the same moment (the send, the draft "prepare", the page's
+// mapping request), and a new chat gets its server id right then. Each lookup reads the stored map,
+// decides, and writes it back; two overlapping lookups would both read the old map, one would take the
+// pending id and the other would invent `conv_<id>`, and the second write would win. The first message
+// would then be masked under one vault and looked up under another, so nothing is ever restored.
+// Run them one at a time.
+let queue = Promise.resolve();
+export function resolveVaultId(tabId, serverConvId) {
+  const run = queue.then(() => resolveVaultIdNow(tabId, serverConvId));
+  queue = run.catch(() => {});
+  return run;
+}
+
+async function resolveVaultIdNow(tabId, serverConvId) {
   // File uploads carry no conversation id in their bodies; the tab URL does
   // (/c/<id>, /app/<id>). Without this, a file uploaded into an existing chat
   // got a different vault than the prompts → inconsistent surrogates.
