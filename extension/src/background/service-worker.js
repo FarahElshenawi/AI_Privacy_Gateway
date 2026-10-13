@@ -34,7 +34,8 @@ const num = (v) => (Number.isInteger(v) ? v : "?");
 function describeProbe(tabId, replaced, q = {}) {
   const roles = q.roles && typeof q.roles === "object" ? Object.entries(q.roles).map(([k, v]) => `${String(k).slice(0, 24)}:${num(v)}`).join(" ") : "?";
   const where = Array.isArray(q.where) ? q.where.map((w) => String(w).slice(0, 200)).join(" | ") : "";
-  return `tab ${tabId}: ${num(replaced)} restored; fakes known ${num(q.entries)}, assistant text nodes ${num(q.assistantNodes)}, fakes in replies ${num(q.fakesInAssistant)}, elsewhere ${num(q.fakesElsewhere)}; roles on page [${roles}]; fake found at [${where}] at ${new Date().toLocaleTimeString()}`;
+  const ids = Array.isArray(q.testids) ? q.testids.map((x) => String(x).slice(0, 40)).join(",") : "";
+  return `tab ${tabId}: ${num(replaced)} restored; test ids [${ids}]; fakes known ${num(q.entries)}, assistant text nodes ${num(q.assistantNodes)}, fakes in replies ${num(q.fakesInAssistant)}, elsewhere ${num(q.fakesElsewhere)}; roles on page [${roles}]; fake found at [${where}] at ${new Date().toLocaleTimeString()}`;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -228,7 +229,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // Ask each attached chat tab for a fresh, content-free look at its page right now.
           for (const tabId of [...attachedTabs]) {
             try {
-              const res = await Promise.race([chrome.tabs.sendMessage(tabId, { type: "DOPPEL_PROBE" }), new Promise((_, rej) => setTimeout(rej, 1200))]);
+              const res = await Promise.race([chrome.tabs.sendMessage(tabId, { type: "DOPPEL_PROBE" }), new Promise((_, rej) => setTimeout(rej, 3500))]);
               if (res && res.success) setDiag({ lastDemask: describeProbe(tabId, res.probe.replaced, res.probe) });
             } catch { /* tab has no page script (not reloaded yet) */ }
           }
