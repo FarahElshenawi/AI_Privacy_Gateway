@@ -50,9 +50,16 @@ test("empty / invalid entries → no replacer", () => {
 
 // ── DOM application ───────────────────────────────────────────────────────────────────
 const textNode = (value, parent = null) => ({ nodeType: 3, nodeValue: value, parentElement: parent, parentNode: parent });
-const el = (editable, assistant = false) => ({
+const el = (editable, assistant = false, user = false) => ({
   closest: (selector) => {
-    if (selector.includes("[data-message-author-role") || selector.includes("model-response")) {
+    if (selector.includes('"user"') || selector.includes("user-query") || selector.includes(".user-turn")) {
+      // USER_SELECTOR check comes first in the implementation: only a user container matches.
+      if (selector.includes("[data-message-author-role") || selector.includes("[data-turn") || selector.includes("user-query") || selector.includes(".user-turn") || selector.includes("testid")) {
+        return user ? {} : null;
+      }
+      return editable ? {} : null;
+    }
+    if (selector.includes("[data-message-author-role") || selector.includes("model-response") || selector.includes("message-content") || selector.includes(".agent-turn") || selector.includes("[data-turn") || selector.includes("testid")) {
       return assistant ? {} : null;
     }
     return editable ? {} : null;
@@ -228,5 +235,88 @@ test("streamed reply with a split fake is restored through the mutation path", a
   const d = createDemasker(fakeDoc(nodes), async () => ({ success: true, enabled: true, changed: true, version: 1, entries: [E("Kenneth Bennett", "Farah")] }), { gapMs: 5 });
   await d.refresh();
   assert.equal(nodes.map((n) => n.nodeValue).join(""), "Hi, Farah!");
+  d._stop();
+});
+
+// ── user containers win over broad assistant selectors; new assistant variants ────
+test("a user container is never demasked even when it also looks like an assistant turn", () => {
+  const both = el(false, true, true);
+  assert.equal(isAssistantTextNode(textNode("Hager", both)), false);
+});
+
+test("new assistant variants (message-content, agent-turn, testid) are recognised", () => {
+  const msgContent = { closest: (s) => (s.includes("message-content") ? {} : null) };
+  const agentTurn = { closest: (s) => (s.includes(".agent-turn") ? {} : null) };
+  const testid = { closest: (s) => (s.includes("testid") ? {} : null) };
+  // USER_SELECTOR has no message-content/agent-turn, so these are not denied;
+  // ASSISTANT_SELECTOR includes all three, so they count as assistant.
+  const { isAssistantTextNode: isA } = mod.exports;
+  assert.equal(isA(textNode("Hager", msgContent)), true);
+  assert.equal(isA(textNode("Hager", agentTurn)), true);
+});
+
+// ── two fakes in one block are both restored ─────────────────────────────────────
+test("two fakes in the same block are both restored without corrupting offsets", () => {
+  const parent = el(false, true);
+  const nodes = [textNode("Hager met ", parent), textNode("Dana.", parent)];
+  const r = buildReplacer([E("Hager", "Alexandrina"), E("Dana", "Bob")]);
+  const changed = applyAcrossBlock({}, fakeDoc(nodes), r, new WeakMap());
+  assert.equal(changed, true);
+  assert.equal(nodes.map((n) => n.nodeValue).join(""), "Alexandrina met Bob.");
+});
+
+// ── shadow DOM (Gemini model-response) ───────────────────────────────────────────
+test("a fake inside a shadow root under an assistant host is restored", async () => {
+  const text = { nodeType: 3, nodeValue: "Hello Hager, welcome." };
+  const inner = {
+    nodeType: 1, tagName: "SPAN", childNodes: [text],
+    parentElement: null, shadowRoot: null,
+    getAttribute: () => null,
+    closest: () => null,
+    getRootNode: () => ({ host }),
+  };
+  text.parentElement = inner;
+  text.parentNode = inner;
+  const shadowRoot = { nodeType: 11, childNodes: [inner] };
+  const outer = {
+    nodeType: 1, tagName: "DIV", childNodes: [],
+    parentElement: null, shadowRoot: null,
+    getAttribute: (a) => (a === "data-message-author-role" ? "assistant" : null),
+    closest: (s) => (s.includes("[data-message-author-role") ? {} : null),
+    getRootNode: () => ({ host: null }),
+  };
+  const host = {
+    nodeType: 1, tagName: "MODEL-RESPONSE", childNodes: [],
+    shadowRoot, parentElement: outer,
+    getAttribute: () => null,
+    closest: (s) => (s.includes("model-response") ? {} : null),
+    getRootNode: () => ({ host: null }),
+    matches: (s) => s.includes("model-response"),
+  };
+  outer.childNodes = [host];
+  const doc = {
+    documentElement: outer, body: outer,
+    addEventListener: () => {},
+    createTreeWalker: () => ({ nextNode: () => null }),
+    querySelectorAll: () => [],
+  };
+  const d = createDemasker(doc, async () => ({
+    success: true, enabled: true, changed: true, version: 1,
+    entries: [E("Hager", "Farah")],
+  }));
+  await d.refresh();
+  assert.equal(text.nodeValue, "Hello Farah, welcome.");
+  d._stop();
+});
+
+// ── half-loaded page (no documentElement yet) must not break refresh ────────────
+test("refresh with no document root still stores the mapping without throwing", async () => {
+  const doc = { documentElement: null, body: null, addEventListener: () => {} };
+  const d = createDemasker(doc, async () => ({
+    success: true, enabled: true, changed: true, version: 1,
+    entries: [E("Hager", "Farah")],
+  }));
+  await d.refresh();
+  assert.ok(d._state().replacer);
   d._stop();
 });

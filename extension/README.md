@@ -44,7 +44,11 @@ and Gemini) restores your real values in the text you see, as it streams in: it 
 worker for this conversation's fake→real entries (`/api/mapping` on the local backend, versioned
 asked once when the page opens and then only while a reply is changing on the page, at most about once every 1.5 s, so an idle tab makes no requests), and a MutationObserver rewrites the
 text nodes that contain a known fake. Replacement is longest-fake-first with word boundaries —
-the same rule as the backend's `/api/demask`. Because it works on rendered text, streaming and
+the same rule as the backend's `/api/demask`, applied per text node and across adjacent nodes
+(streaming/token-split replies), piercing shadow DOM (Gemini `model-response`). Only assistant/model
+containers are touched (`data-message-author-role`, `data-turn="assistant"`, `model-response`,
+`message-content`, `.agent-turn`); user messages and the composer are never rewritten, and user
+containers always win on overlap. Because it works on rendered text, streaming and
 reloaded chat history both work. The composer is never touched.
 
 The popup switch **Show real values in replies** is **off by default**, because of an honest limit: the restored values are written into the page's DOM, so the site's own scripts can technically read them, which undoes part of what masking protects. Turn it on only when readability matters more than that. (Turning it off affects new text only; reload to see the fakes again.) `[REDACTED:TYPE]` placeholders for values that are not
