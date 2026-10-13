@@ -155,7 +155,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case "DEMASK_REPORT": {       // how many pieces of text the page script restored (a count, never content)
           if (sender.tab && Number.isInteger(message.replaced)) {
-            setDiag({ lastDemask: `tab ${sender.tab.id}: ${message.replaced} replacement(s) on the page at ${new Date().toLocaleTimeString()}` });
+            const q = message.probe && typeof message.probe === "object" ? message.probe : {};
+            const num = (v) => (Number.isInteger(v) ? v : "?");
+            setDiag({ lastDemask: `tab ${sender.tab.id}: ${message.replaced} restored; fakes known ${num(q.entries)}, assistant text nodes ${num(q.assistantNodes)}, fakes seen in replies ${num(q.fakesInAssistant)}, elsewhere ${num(q.fakesElsewhere)} at ${new Date().toLocaleTimeString()}` });
           }
           sendResponse({ success: true });
           break;
