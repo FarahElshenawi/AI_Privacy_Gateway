@@ -48,7 +48,56 @@ function buildReplacer(entries) {
     );
 
   const re = new RegExp(alts.join("|"), "g");
-  return (text) => text.replace(re, (m) => map.get(m));
+  const fn = (text) => text.replace(re, (m) => map.get(m));
+  /** Where each known fake sits in `text` (used when a fake is split across several text nodes). */
+  fn.matches = (text) => {
+    const out = [];
+    const r = new RegExp(re.source, "g");
+    for (let m = r.exec(text); m; m = r.exec(text)) {
+      out.push({ start: m.index, end: m.index + m[0].length, real: map.get(m[0]) });
+      if (m[0].length === 0) r.lastIndex++;
+    }
+    return out;
+  };
+  return fn;
+}
+
+const BLOCK_SELECTOR = "p,li,h1,h2,h3,h4,h5,h6,td,th,blockquote,pre,div";
+
+/**
+ * A reply can be drawn as several adjacent text nodes (one per word or token while it streams,
+ * or a name split by a <span>), so no single node holds the whole fake. Join the text of one
+ * block, find the fakes in the joined string, and write the real value back across the nodes.
+ */
+function applyAcrossBlock(block, doc, replacer, written) {
+  if (!replacer || !replacer.matches || !block || !doc.createTreeWalker) return false;
+  const nodes = [];
+  for (const n of textNodes(block, doc)) {
+    if (isAssistantTextNode(n) && !isEditable(n)) nodes.push(n);
+  }
+  if (nodes.length < 2) return false;
+  const joined = nodes.map((n) => n.nodeValue).join("");
+  const found = replacer.matches(joined);
+  if (found.length === 0) return false;
+  const starts = [], lens = [];
+  let pos = 0;
+  for (const n of nodes) { starts.push(pos); lens.push(n.nodeValue.length); pos += n.nodeValue.length; }
+  let changed = false;
+  for (const m of found.reverse()) {                 // last match first: earlier offsets stay valid
+    let placed = false;
+    for (let i = 0; i < nodes.length; i++) {
+      const ns = starts[i], ne = ns + lens[i];
+      if (ne <= m.start || ns >= m.end) continue;
+      const v = nodes[i].nodeValue;
+      const a = Math.max(m.start - ns, 0);
+      const b = Math.min(m.end - ns, ne - ns);
+      nodes[i].nodeValue = v.slice(0, a) + (placed ? "" : m.real) + v.slice(b);
+      placed = true;
+      changed = true;
+      if (written) written.set(nodes[i], nodes[i].nodeValue);
+    }
+  }
+  return changed;
 }
 
 /** Rewrite one text node in place. Returns true if it changed. */
@@ -103,24 +152,51 @@ function createDemasker(doc, send, opts = {}) {
   let replacedTotal = 0;
   let reportTimer = null;
   let replacer = null;
+  let entriesSeen = null;
   let version = null;
   let pending = null;
   let lastRefresh = -Infinity;
   const written = new WeakMap();
 
+  function blockOf(n) {
+    const el = n && (n.nodeType === 3 ? (n.parentElement || n.parentNode) : n);
+    return el && el.closest ? (el.closest(BLOCK_SELECTOR) || el) : null;
+  }
+
+  function blockPass(blocks) {
+    for (const b of blocks) {
+      if (b && applyAcrossBlock(b, doc, replacer, written)) noteReplaced();
+    }
+  }
+
   function scan(root) {
     if (!replacer) return;
+    const blocks = new Set();
     for (const n of textNodes(root, doc)) {
       if (isAssistantTextNode(n) && !isEditable(n)) {
         if (applyToTextNode(n, replacer, written)) noteReplaced();
+        blocks.add(blockOf(n));
       }
     }
+    blockPass(blocks);
+  }
+
+  /** Diagnostics only (counts, never text): why nothing was restored. */
+  function probe() {
+    let assistantNodes = 0, fakesInAssistant = 0, fakesElsewhere = 0;
+    const fakes = (entriesSeen || []).map((e) => e.fake).filter(Boolean);
+    for (const n of textNodes(doc.documentElement || doc.body, doc)) {
+      const inA = isAssistantTextNode(n);
+      if (inA) assistantNodes++;
+      if (fakes.some((f) => n.nodeValue.includes(f))) { if (inA) fakesInAssistant++; else fakesElsewhere++; }
+    }
+    return { entries: fakes.length, assistantNodes, fakesInAssistant, fakesElsewhere };
   }
 
   function noteReplaced() {
     replacedTotal++;
     if (!report || reportTimer) return;
-    reportTimer = setTimeout(() => { reportTimer = null; report(replacedTotal); }, 1000);
+    reportTimer = setTimeout(() => { reportTimer = null; report(replacedTotal, probe()); }, 1000);
   }
 
   const insideAssistant = (n) => {
@@ -154,15 +230,19 @@ function createDemasker(doc, send, opts = {}) {
 
   function onMutations(records) {
     if (replacer) {
+      const blocks = new Set();
       for (const r of records) {
         if (r.type === "characterData") {
           if (isAssistantTextNode(r.target) && !isEditable(r.target)) {
             if (applyToTextNode(r.target, replacer, written)) noteReplaced();
+            blocks.add(blockOf(r.target));
           }
         } else {
           for (const added of r.addedNodes) scan(added);
+          if (insideAssistant(r.target)) blocks.add(blockOf(r.target));
         }
       }
+      blockPass(blocks);
     }
     if (touchesAssistant(records)) requestRefresh();
   }
@@ -188,11 +268,13 @@ function createDemasker(doc, send, opts = {}) {
 
     if (res.changed) {
       replacer = buildReplacer(res.entries);
+      entriesSeen = res.entries;
       version = res.version;
       scan(doc.documentElement || doc.body);
     } else if (typeof res.version === "number") {
       version = res.version;
     }
+    if (report) report(replacedTotal, probe());
   }
 
   function start() {
@@ -227,6 +309,7 @@ function createDemasker(doc, send, opts = {}) {
     scan,
     _onMutations: onMutations,
     _state: () => ({ replacer, version }),
+    _probe: probe,
     _stop: () => { clearTimeout(pending); pending = null; clearTimeout(reportTimer); reportTimer = null; }
   };
 }
@@ -238,7 +321,7 @@ if (
   chrome.runtime.sendMessage
 ) {
   const d = createDemasker(document, (m) => chrome.runtime.sendMessage(m), {
-    report: (n) => { try { chrome.runtime.sendMessage({ type: "DEMASK_REPORT", replaced: n }); } catch { /* worker asleep */ } },
+    report: (n, probe) => { try { chrome.runtime.sendMessage({ type: "DEMASK_REPORT", replaced: n, probe }); } catch { /* worker asleep */ } },
   });
   d.start();
 
@@ -257,6 +340,7 @@ if (typeof module !== "undefined" && module.exports) {
     applyToTextNode,
     isEditable,
     isAssistantTextNode,
+    applyAcrossBlock,
     textNodes,
     createDemasker
   };
