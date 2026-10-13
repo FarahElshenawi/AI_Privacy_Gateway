@@ -217,7 +217,14 @@ function createDemasker(doc, send, opts = {}) {
         roles[k] = (roles[k] || 0) + 1;
       }
     }
-    return { entries: fakes.length, assistantNodes, fakesInAssistant, fakesElsewhere, where, roles, replaced: replacedTotal };
+    const testids = [];
+    if (doc.querySelectorAll) {
+      for (const el of doc.querySelectorAll("[data-testid]")) {
+        const v = String(el.getAttribute("data-testid")).slice(0, 40);
+        if (!testids.includes(v) && testids.length < 12) testids.push(v);
+      }
+    }
+    return { entries: fakes.length, assistantNodes, fakesInAssistant, fakesElsewhere, where, roles, testids, replaced: replacedTotal };
   }
 
   function noteReplaced() {
@@ -282,15 +289,15 @@ function createDemasker(doc, send, opts = {}) {
     try {
       res = await send({ type: "GET_MAPPING", sinceVersion: version });
     } catch {
-      return;
+      return false;
     }
 
-    if (!res || !res.success) return;
+    if (!res || !res.success) return false;
 
     if (res.enabled === false) {
       replacer = null;
       version = null;
-      return;
+      return true;
     }
 
     if (res.changed) {
@@ -302,6 +309,7 @@ function createDemasker(doc, send, opts = {}) {
       version = res.version;
     }
     if (report) report(replacedTotal, probe());
+    return true;
   }
 
   function start() {
@@ -316,7 +324,9 @@ function createDemasker(doc, send, opts = {}) {
       else doc.addEventListener("DOMContentLoaded", attach, { once: true });
     }
 
-    refresh();                                  // restore a reply that is already on the page
+    // Restore a reply that is already on the page. The worker may still be waking up: try a few times.
+    const first = (left) => refresh().then((ok) => { if (!ok && left > 0) setTimeout(() => first(left - 1), 1500); });
+    first(3);
 
     doc.addEventListener("visibilitychange", () => {
       if (!doc.hidden) refresh();
@@ -353,7 +363,12 @@ if (
   d.start();
   if (chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((m, _sender, reply) => {
-      if (m && m.type === "DOPPEL_PROBE") { try { reply({ success: true, probe: d._probe() }); } catch { reply({ success: false }); } }
+      if (m && m.type === "DOPPEL_PROBE") {
+        // Ask for the mapping first, so the report can say where each fake sits on this page.
+        d.refresh().catch(() => {}).then(() => { try { reply({ success: true, probe: d._probe() }); } catch { reply({ success: false }); } });
+        return true;
+      }
+      return false;
     });
   }
 
