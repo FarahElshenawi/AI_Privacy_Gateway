@@ -167,6 +167,79 @@ ChatGPT receives: "My name is [FAKE NAME], my card is [REDACTED:CREDIT_CARD], em
 
 ---
 
+## Demo run-through (Windows PowerShell)
+
+Three PowerShell windows (cloud backend, local backend, dashboard) plus Chrome. Replace every `PASTE-...` text with your own value and type it **without** angle brackets.
+
+**Step 0 - make two keys (once).** Run this twice and save both results:
+
+```powershell
+[guid]::NewGuid().ToString("N")
+```
+
+First result = the **admin key** (dashboard only). Second = the **enrollment key** (local backend only). They must be different and at least 24 characters.
+
+**Step 1 - cloud backend (window 1, start it first)**
+
+```powershell
+cd C:\projects\ai-privacy-gateway\cloud-backend
+$env:CLOUD_ADMIN_API_KEY = "PASTE-ADMIN-KEY-HERE"
+$env:CLOUD_ENROLL_KEY = "PASTE-ENROLL-KEY-HERE"
+uv run uvicorn app.main:app --port 8000
+```
+
+Check `http://localhost:8000/health` opens.
+
+**Step 2 - local backend (window 2)**
+
+```powershell
+cd C:\projects\ai-privacy-gateway\local-backend
+$env:CLOUD_URL = "http://localhost:8000"
+$env:CLOUD_ENROLL_KEY = "PASTE-ENROLL-KEY-HERE"
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8765
+```
+
+Open `http://127.0.0.1:8765/health` and wait for `"tier2":"ready"` (10-30 s). Do not use `--reload` on stage. Leave `DLP_DEBUG` unset: it prints real values in the log. If you pinned the model earlier, set `DLP_TIER2_MODEL` / `HF_HUB_OFFLINE` in this window first.
+
+**Step 3 - dashboard (window 3)**
+
+```powershell
+cd C:\projects\ai-privacy-gateway\dashboard
+$env:VITE_CLOUD_BACKEND_URL = "http://localhost:8000"
+npm run dev
+```
+
+Open the printed address (usually `http://localhost:5173`), go to **Settings** and paste the **admin key** (not the enrollment key).
+
+**Step 4 - extension**
+
+1. `git pull` on `develop`.
+2. `chrome://extensions` -> reload Doppel (or **Load unpacked** -> the `extension` folder).
+3. Open chatgpt.com. The popup shows **Online** and **Attached**.
+4. Switch on **Show real values in replies** (off by default: restored values sit in the page, where the site's own scripts can read them).
+
+**Step 5 - check before presenting.** In a new chat send `my name is Farah Ahmed, my email is farah@example.com`. The sent message shows fakes, the reply shows the real name, and the dashboard shows the device and event counts within a minute.
+
+**Step 6 - the demo (one new chat per item)**
+
+1. Text prompt with name, address, SSN, card, API key.
+2. Real values restored in the reply.
+3. Word file, then PDF.
+4. Small Excel file (about 20 rows; the local model checks every cell, so large files take longer).
+5. Stop the local backend, send a prompt, show it blocked (fails closed), restart the backend.
+6. Dashboard: events (counts and types only, never content), policies, deny terms.
+
+**If something fails**
+
+| Symptom | Cause |
+|---|---|
+| Dashboard "can't reach the cloud backend" | Cloud backend not running, or the wrong key in Settings (must be the admin key) |
+| Dashboard empty | Enrollment keys differ between the two backends, or the cloud backend started after the local one |
+| Popup shows Offline | Local backend not running or still warming up |
+| Reply still shows a fake name | Reload the extension, refresh ChatGPT, start a new chat |
+
+---
+
 ## Detection Engine (`dlp_core/`)
 
 ### Architecture
