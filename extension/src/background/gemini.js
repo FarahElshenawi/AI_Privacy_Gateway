@@ -23,6 +23,13 @@ export async function handleGeminiSend(source, params, body) {
     return blockForMaskError(source, requestId, err);
   }
   try {
+    const originalTexts = text.map((s) => s.get()).filter((t) => t && t.trim());
+    console.log("%c═══════════════════════════════════════════════════════════════", "color: #10b981; font-weight: bold;");
+    console.log("%c→ SENT TO GEMINI (masked)", "color: #10b981; font-weight: bold; font-size: 13px;");
+    console.log("%c  Original (what you typed):", "color: #94a3b8;", originalTexts.join(" | "));
+    console.log("%c  Sent to Gemini (masked):  ", "color: #10b981; font-weight: bold;", text.map((s) => s.get()).filter((t) => t && t.trim()).join(" | "));
+    console.log("%c  Entities masked:", "color: #94a3b8;", result.types.join(", ") || "none");
+    console.log("%c═══════════════════════════════════════════════════════════════", "color: #10b981; font-weight: bold;");
     await cont(source, requestId, { postData: bytesToBase64(buildGeminiBody(state)) });
   } catch (e) {
     console.error("[Doppel] continueRequest (gemini) failed:", e.message);

@@ -79,9 +79,18 @@ def get_mapping(request: Request, body: MappingRequest, authorization: str | Non
 
     version = _vault.version(body.conversation_id)
     if body.since_version is not None and body.since_version == version:
+        import logging
+        logging.getLogger("privacy_gateway.mapping").info(
+            f"MAPPING conv={body.conversation_id} since={body.since_version} version={version} → unchanged (short-circuit)"
+        )
         return MappingResponse(version=version, changed=False)
 
     entries = [MappingEntry(fake=f, real=r) for f, r in _vault.items(body.conversation_id)]
+    import logging
+    logging.getLogger("privacy_gateway.mapping").info(
+        f"MAPPING conv={body.conversation_id} since={body.since_version} version={version} → {len(entries)} entries"
+        + (f', firstFake="{entries[0].fake[:40]}"' if entries else " (EMPTY VAULT)")
+    )
     if entries:   # delivering real values is a demask-class event: audit it (counts only)
         emit_demask_audit(build_demask_audit_record(
             conversation_id=body.conversation_id, replacements_made=len(entries), text_length=0))

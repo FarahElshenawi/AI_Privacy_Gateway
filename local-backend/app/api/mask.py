@@ -95,6 +95,11 @@ def mask_pii(request: Request, body: MaskRequest, authorization: str | None = He
         _closed("DETECTION_BLOCKED")
         raise HTTPException(status_code=503, detail="Detection blocked: critical detector failed")
 
+    import logging
+    logging.getLogger("privacy_gateway.mask").info(
+        f"MASK conv={cid} spans={len(result.merged)} labels={[s.label for s in result.merged][:10]}"
+    )
+
     try:
         masked = engine._masker.mask(body.text, result.merged, body.conversation_id)
     except RequestBlockedError as exc:
@@ -115,6 +120,15 @@ def mask_pii(request: Request, body: MaskRequest, authorization: str | None = He
     strict = engine.STRICT_DEFAULT if body.strict is None else body.strict
     coverage_complete = not result.degraded
     safe = not leaks and (coverage_complete or not strict)
+
+    # Log vault state after masking so we can compare with /api/mapping lookups
+    vault_entries = engine._vault.items(cid)
+    import logging
+    logging.getLogger("privacy_gateway.mask").info(
+        f"MASK DONE conv={cid} vault_now_has={len(vault_entries)} entries"
+        + (f', firstFake="{vault_entries[0][0][:40]}"' if vault_entries else "")
+    )
+
     if safe:
         counts: dict[str, int] = {}
         for ms in result.merged:

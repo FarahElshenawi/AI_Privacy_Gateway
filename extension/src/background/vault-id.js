@@ -1,5 +1,5 @@
 import { convIdFromUrl } from "./body.js";
-import { SESSION_KEY_VAULT_IDS, pendingVaultId } from "./core.js";
+import { SESSION_KEY_VAULT_IDS, lastVaultId, pendingVaultId } from "./core.js";
 
 // ─────────────────────────────────────────────────────────
 // Vault id: stable per conversation (shared by prompts AND files)
@@ -32,17 +32,26 @@ async function resolveVaultIdNow(tabId, serverConvId) {
   if (serverConvId) {
     id = store[serverConvId];
     if (!id) {
-      id = pendingVaultId.get(tabId) || `conv_${serverConvId}`;
+      // Fall back to pending, then to lastVaultId (the last vault this tab used for masking).
+      // Without lastVaultId, a race between handleSend and handleGetMapping could create
+      // a brand-new conv_<id> vault that has no entries, while the real entries sit under
+      // the pending id that was already deleted.
+      id = pendingVaultId.get(tabId) || lastVaultId.get(tabId) || `conv_${serverConvId}`;
       pendingVaultId.delete(tabId);
       store[serverConvId] = id;
       await chrome.storage.session.set({ [SESSION_KEY_VAULT_IDS]: store });
     }
   } else {
-    id = pendingVaultId.get(tabId);
+    id = pendingVaultId.get(tabId) || lastVaultId.get(tabId);
     if (!id) {
       id = `new_${tabId}_${crypto.randomUUID()}`;
       pendingVaultId.set(tabId, id);
     }
   }
+  // Always remember the last vault ID used for this tab, so a later lookup (e.g. GET_MAPPING
+  // after the SW restarted or after pendingVaultId was deleted) can fall back to it instead
+  // of inventing a new, empty vault.
+  lastVaultId.set(tabId, id);
+  console.log(`[Doppel vault] tab=${tabId} serverConvId=${serverConvId || "null"} → vault=${id}`);
   return id;
 }

@@ -51,6 +51,7 @@ export const authorizedMaskedFiles = persisted.map("authorizedMaskedFiles", {   
 });
 export const geminiUploads = persisted.map("geminiUploads");              // tabId → FIFO of { name, type } from resumable "start"
 export const pendingVaultId = persisted.map("pendingVaultId");            // tabId → vault id while the chat has no server id yet
+export const lastVaultId = persisted.map("lastVaultId");                  // tabId → last vault id used (fallback when pending is gone)
 export const stateReady = persisted.hydrate();
 
 export const isChatGPTUrl = (u) => !!u && (/^https:\/\/(chatgpt\.com|chat\.openai\.com|gemini\.google\.com)\//.test(u));

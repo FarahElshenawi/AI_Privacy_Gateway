@@ -9,6 +9,10 @@ export const cont = (source, requestId, extra = {}) =>
   chrome.debugger.sendCommand(source, "Fetch.continueRequest", { requestId, ...extra });
 
 export async function block(source, requestId, reason, entityTypes = [], entityCount = 0) {
+  console.log("%c═══════════════════════════════════════════════════════════════", "color: #ef4444; font-weight: bold;");
+  console.log("%c✖ BLOCKED — NOT sent to OpenAI", "color: #ef4444; font-weight: bold; font-size: 13px;");
+  console.log("%c  Reason: ", "color: #ef4444;", reason);
+  console.log("%c═══════════════════════════════════════════════════════════════", "color: #ef4444; font-weight: bold;");
   try {
     await chrome.debugger.sendCommand(source, "Fetch.failRequest", {
       requestId, errorReason: "BlockedByClient",

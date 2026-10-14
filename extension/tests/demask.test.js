@@ -68,15 +68,15 @@ test("applyToTextNode rewrites in place and does not loop on its own output", ()
   assert.equal(applyToTextNode(n, r, written), false);
 });
 
-test("user-authored message text is never demasked", async () => {
+test("non-assistant message text IS demasked (user messages carry fakes from the server too)", async () => {
   const n = textNode("Hager", el(false, false));
   const d = createDemasker(fakeDoc([n]), async () => ({
     success: true, enabled: true, changed: true, version: 1,
     entries: [E("Hager", "Farah")]
   }));
   await d.refresh();
-  assert.equal(n.nodeValue, "Hager");
-  assert.equal(isAssistantTextNode(n), false);
+  assert.equal(n.nodeValue, "Farah");
+  assert.equal(isAssistantTextNode(n), false);  // still not an assistant node, but demasked anyway
 });
 
 test("assistant message text is eligible for demasking", () => {
@@ -152,16 +152,16 @@ test("reset (new conversation) drops the old mapping before asking for the new o
   assert.equal(d._state().version, 1);
 });
 
-// ── asks for the mapping only while a reply is changing ────────────────────────────────
+// ── asks for the mapping while a reply is changing, with a safety-net poll ───────────────
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rec = (node) => ({ type: "characterData", target: node, addedNodes: [] });
 const reply = { success: true, enabled: true, changed: false, version: 1, entries: [] };
 
-test("an idle tab makes no further requests after the first one (no timer)", async () => {
+test("an idle tab makes the initial call and then a safety-net poll every few seconds", async () => {
   let calls = 0;
   const d = createDemasker(fakeDoc([]), async () => { calls++; return reply; }, { gapMs: 30 });
   d.start();
-  await sleep(150);
+  await sleep(150);          // only the initial first(3) call has fired (retries at 1500ms, poll at 3000ms)
   d._stop();
   assert.equal(calls, 1);
 });
@@ -176,13 +176,16 @@ test("a reply streaming in triggers a few requests, not one per chunk", async ()
   assert.ok(calls >= 1 && calls <= 4, `calls=${calls}`);
 });
 
-test("typing in the composer or changes outside assistant messages never ask", async () => {
+test("typing in the composer never asks; non-editable text changes do", async () => {
   let calls = 0;
   const d = createDemasker(fakeDoc([]), async () => { calls++; return reply; }, { gapMs: 10 });
-  d._onMutations([rec(textNode("typing", el(true, false))), rec(textNode("sidebar", el(false, false)))]);
+  d._onMutations([rec(textNode("typing", el(true, false)))]);    // composer: editable, ignored
+  await sleep(80);
+  assert.equal(calls, 0, "composer changes never ask");
+  d._onMutations([rec(textNode("sidebar", el(false, false)))]);  // non-editable: triggers refresh
   await sleep(80);
   d._stop();
-  assert.equal(calls, 0);
+  assert.equal(calls, 1, "non-editable text changes trigger a refresh");
 });
 
 test("text the demasker already rewrote needs no new request; unknown new text does", async () => {
@@ -212,14 +215,14 @@ test("a fake split over several text nodes is restored, and neighbours are kept"
   assert.equal(nodes.map((n) => n.nodeValue).join(""), "Hi, Farah Elshenawy! 👋 and Omar Ali.");
 });
 
-test("a split fake in a user message or the composer is left alone", () => {
+test("a split fake in the composer is left alone, but in a user message it is restored", () => {
   const user = el(false, false), box = el(true, true);
   const a = [textNode("Hi, Ken", user), textNode("neth Bennett", user)];
   const b = [textNode("Ken", box), textNode("neth Bennett", box)];
   const r = buildReplacer([E("Kenneth Bennett", "Farah")]);
-  assert.equal(applyAcrossBlock({}, fakeDoc(a), r, new WeakMap()), false);
-  assert.equal(applyAcrossBlock({}, fakeDoc(b), r, new WeakMap()), false);
-  assert.equal(a[0].nodeValue + a[1].nodeValue, "Hi, Kenneth Bennett");
+  assert.equal(applyAcrossBlock({}, fakeDoc(a), r, new WeakMap()), true);   // user message: restored
+  assert.equal(applyAcrossBlock({}, fakeDoc(b), r, new WeakMap()), false);  // composer: left alone
+  assert.equal(a[0].nodeValue + a[1].nodeValue, "Hi, Farah");
 });
 
 test("streamed reply with a split fake is restored through the mutation path", async () => {
