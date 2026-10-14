@@ -1,5 +1,5 @@
 import { convIdFromUrl } from "./body.js";
-import { SESSION_KEY_VAULT_IDS, pendingVaultId } from "./core.js";
+import { SESSION_KEY_VAULT_IDS, pendingVaultId, setDiag } from "./core.js";
 
 // ─────────────────────────────────────────────────────────
 // Vault id: stable per conversation (shared by prompts AND files)
@@ -22,27 +22,58 @@ export function resolveVaultId(tabId, serverConvId) {
   return run;
 }
 
+const PENDING = (tabId) => `__pending_${tabId}`;      // a new chat's vault, until the chat has a server id
+const RECENT = (tabId) => `__recent_${tabId}`;        // vaults this tab used lately (newest first)
+const RECENT_MAX = 8;
+
+// Everything about a tab's vaults lives in ONE stored record, read and written together, so the
+// "new chat" id and the binding to its conversation id can never disagree.
 async function resolveVaultIdNow(tabId, serverConvId) {
   // File uploads carry no conversation id in their bodies; the tab URL does
   // (/c/<id>, /app/<id>). Without this, a file uploaded into an existing chat
   // got a different vault than the prompts → inconsistent surrogates.
   serverConvId = serverConvId || await tabConvId(tabId);
   const store = (await chrome.storage.session.get(SESSION_KEY_VAULT_IDS))[SESSION_KEY_VAULT_IDS] || {};
-  let id;
+  const pend = store[PENDING(tabId)] || pendingVaultId.get(tabId);
+  let id, how;
   if (serverConvId) {
     id = store[serverConvId];
-    if (!id) {
-      id = pendingVaultId.get(tabId) || `conv_${serverConvId}`;
-      pendingVaultId.delete(tabId);
+    if (id) {
+      how = "known";
+    } else {
+      id = pend || `conv_${serverConvId}`;
+      how = pend ? "bound-new-chat" : "no-pending-fallback";
       store[serverConvId] = id;
-      await chrome.storage.session.set({ [SESSION_KEY_VAULT_IDS]: store });
     }
+    if (how === "bound-new-chat") {
+      delete store[PENDING(tabId)];
+      pendingVaultId.delete(tabId);
+    }
+  } else if (pend) {
+    id = pend;
+    how = "reuse-new-chat";
   } else {
-    id = pendingVaultId.get(tabId);
-    if (!id) {
-      id = `new_${tabId}_${crypto.randomUUID()}`;
-      pendingVaultId.set(tabId, id);
-    }
+    id = `new_${tabId}_${crypto.randomUUID()}`;
+    how = "new-chat";
+    store[PENDING(tabId)] = id;
+  }
+  if (!serverConvId) pendingVaultId.set(tabId, id);
+  const recent = store[RECENT(tabId)] || [];
+  if (recent[0] !== id) store[RECENT(tabId)] = [id, ...recent.filter((x) => x !== id)].slice(0, RECENT_MAX);
+  await chrome.storage.session.set({ [SESSION_KEY_VAULT_IDS]: store });
+  if (how !== "known" && how !== "reuse-new-chat") {
+    setDiag({ lastVaultDecision: `tab ${tabId}: ${how}${serverConvId ? " (chat has an id)" : ""} at ${new Date().toLocaleTimeString()}` });
   }
   return id;
+}
+
+/** The tab's current vault first, then the other vaults it used recently (for looking up real values). */
+export function vaultIdsForTab(tabId) {
+  const run = queue.then(async () => {
+    const cur = await resolveVaultIdNow(tabId, null);
+    const store = (await chrome.storage.session.get(SESSION_KEY_VAULT_IDS))[SESSION_KEY_VAULT_IDS] || {};
+    return [cur, ...(store[RECENT(tabId)] || []).filter((x) => x !== cur)];
+  });
+  queue = run.catch(() => {});
+  return run;
 }

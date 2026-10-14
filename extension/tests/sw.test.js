@@ -529,7 +529,9 @@ test("GET_MAPPING: returns the conversation's entries from the backend", async (
 
 test("GET_MAPPING: same version → changed:false and no entries", async () => {
   resetCalls(); mappingCalls = [];
-  const r = await sendMsg({ type: "GET_MAPPING", sinceVersion: 4 });
+  const first = await sendMsg({ type: "GET_MAPPING", sinceVersion: null });   // the page's version is whatever the worker last reported
+  mappingCalls = [];
+  const r = await sendMsg({ type: "GET_MAPPING", sinceVersion: first.version });
   assert.equal(r.changed, false);
   assert.deepEqual(r.entries, []);
 });

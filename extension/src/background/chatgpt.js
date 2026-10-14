@@ -1,7 +1,7 @@
 import { bytesToBase64, collectAttachmentNameSlots, collectPrepareSlots, collectUserTextSlots, countResidualOriginals, fixFilename, splitFilename } from "./body.js";
 import { DEMASK_KEY, authorizedMaskedFiles, encodeJson, getHeader, isChatGPTUrl, protectionOn, reservedNames, setDiag, trace } from "./core.js";
 import { BackendError, backendPost, coverageNote, logActivity, maskFileChecked, maskViaBackend, recordFileMasked } from "./backend.js";
-import { resolveVaultId } from "./vault-id.js";
+import { resolveVaultId, vaultIdsForTab } from "./vault-id.js";
 import { block, cont } from "./cdp.js";
 // ─────────────────────────────────────────────────────────
 // Handlers
@@ -224,6 +224,9 @@ export async function handleFilePut(source, params, body) {
 /** A vault id is opaque and holds no content; show enough of it to compare the masking side with the mapping side. */
 const shortId = (id) => String(id).replace(/^(new_\d+_)([0-9a-f]{8}).*/, "$1$2…").slice(0, 28);
 
+// Per vault: the version and entries last fetched. Memory only; a restarted worker just refetches.
+const mappingCache = new Map();
+
 export async function handleGetMapping(message, sender) {
   if (!sender.tab || !isChatGPTUrl(sender.tab.url)) {
     throw new BackendError("Mapping is only available on ChatGPT / Gemini", 400);
@@ -234,17 +237,34 @@ export async function handleGetMapping(message, sender) {
     return { success: true, enabled: false };
   }
 
-  const vaultId = await resolveVaultId(sender.tab.id, null);
+  // This tab's current vault AND the others it used recently: a reply's fakes were made under whichever
+  // vault the message was masked with, so look in all of them. The page sees one combined list.
+  const ids = await vaultIdsForTab(sender.tab.id);
+  let combined = 0;
+  const entries = [];
+  const parts = [];
+  for (const id of ids) {
+    const have = mappingCache.get(id);
+    const resp = await backendPost("/api/mapping", () => ({
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: id, since_version: have ? have.version : null }),
+    }), 5000);
+    if (!resp.ok) throw new BackendError(`Mapping request failed (${resp.status})`, resp.status);
+    const data = await resp.json();
+    let cur = have;
+    if (data.changed || !have) {
+      cur = { version: data.version, entries: Array.isArray(data.entries) ? data.entries : [] };
+      mappingCache.set(id, cur);
+    }
+    combined += cur.version + 1;                 // versions only grow, so the sum changes whenever any vault does
+    entries.push(...cur.entries);
+    parts.push(`${shortId(id)}=${cur.entries.length}`);
+  }
   const since = Number.isInteger(message.sinceVersion) ? message.sinceVersion : null;
-  const resp = await backendPost("/api/mapping", () => ({
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ conversation_id: vaultId, since_version: since }),
-  }), 5000);
-  if (!resp.ok) throw new BackendError(`Mapping request failed (${resp.status})`, resp.status);
-  const data = await resp.json();
-  const entries = Array.isArray(data.entries) ? data.entries : [];
-  setDiag({ lastMapping: `tab ${sender.tab.id} vault ${shortId(vaultId)}: ${data.changed ? entries.length + " entries" : "unchanged"}, version ${data.version} at ${new Date().toLocaleTimeString()}` });
-  return { success: true, enabled: true, version: data.version, changed: !!data.changed, entries };
+  const unchanged = since !== null && since === combined;
+  setDiag({ lastMapping: `tab ${sender.tab.id}: ${unchanged ? "unchanged" : entries.length + " entries"}, looked in ${ids.length} vault(s) [${parts.join(", ")}] at ${new Date().toLocaleTimeString()}` });
+  if (unchanged) return { success: true, enabled: true, changed: false, version: combined, entries: [] };
+  return { success: true, enabled: true, changed: true, version: combined, entries };
 }
 
 export async function handleSelectedFile(message, sender) {
