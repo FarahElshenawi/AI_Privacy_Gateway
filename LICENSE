@@ -1,15 +1,29 @@
-Copyright (c) 2026 AI Privacy Gateway contributors.
+PROPRIETARY LICENSE: ALL RIGHTS RESERVED
 
-All rights reserved.
+Copyright (c) 2026 Farah Elshenawy. All rights reserved.
 
-This repository contains the source code and materials for the AI Privacy Gateway graduation project developed as part of the National Telecommunication Institute (NTI) program.
+AI_Privacy_Gateway (the "Software"), including its source code, documentation,
+design, and all related materials, is the exclusive property of the copyright
+holder.
 
-Unless otherwise agreed in writing by the project’s rightful owners, no permission is granted to use, copy, modify, distribute, sublicense, or commercially exploit this project's source code or substantial portions of it.
+NO LICENSE IS GRANTED. No permission is given to any person or organization to
+use, run, copy, modify, merge, publish, distribute, sublicense, sell, host,
+reverse engineer, or create derivative works from the Software, in whole or in
+part, for any purpose, whether commercial or non-commercial, without prior
+written permission from the copyright holder.
 
-The project is provided for educational, demonstration, and portfolio purposes only. Viewing and forking this public repository on GitHub remain subject to GitHub's Terms of Service.
+Viewing this repository on GitHub does not grant any right to use the Software.
+The only rights that exist are those that cannot be removed by law or by
+GitHub's Terms of Service (such as viewing and forking within GitHub's
+platform functionality).
 
-Third-party components, dependencies, models, and other materials remain subject to their respective licenses and terms.
+Any unauthorized use is a violation of the copyright holder's rights and may
+result in legal action.
 
-No ownership or licensing rights are granted by this notice beyond those required by applicable law or platform terms.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
 
-For permissions or licensing inquiries, please contact the project contributors.
+For permission requests, contact: farah.elshenawy2@gmail.com
