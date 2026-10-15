@@ -480,20 +480,6 @@ AI_Privacy_Gateway/
 6. **Honest degradation.** `degraded`, `uncovered_labels`, `coverage_complete` in every response. Client always knows what wasn't checked.
 7. **Faker over anchors.** Descriptive anchors rejected after empirical eval (76% re-identifiability vs 14% chance baseline).
 
----
-
-## Limitations (Stated Honestly)
-
-- **Response demasking is optional and off by default.** With the popup switch on, the extension restores real values in the ChatGPT/Gemini page (via `/api/mapping`) as replies stream in; values that are not stored for restoring (e.g. `[REDACTED:CREDIT_CARD]`) stay redacted, and the restored text lives in the page's DOM, readable by the site's own scripts.
-- **No OCR.** Scanned PDFs and standalone images are rejected (fail-closed). Images inside Word/Excel are not read, so their content is not masked; `DLP_IMAGE_POLICY=block` refuses such files. Charts and SmartArt are blocked rather than read.
-- **Legacy Office files** (`.doc`, `.xls`) are not supported and are refused.
-- **Chrome shows a "debugging" bar** while Doppel is attached; that is the cost of network-layer interception.
-- **Not yet verified here:** real Tier 2 speed on your hardware, the installers on Windows/macOS, and a real Word/Excel file with charts or SmartArt. A signed installer package needs your code-signing certificates.
-- **Cloud sync is opt-in.** With `CLOUD_URL` and `CLOUD_ENROLL_KEY` set, the local backend enrolls, heartbeats, pushes audit metadata and pulls policies using a per-device token; the admin key stays with the dashboard.
-- **ChatGPT and Gemini only.** Other sites (Claude, etc.) are future work.
-- **No ONNX.** GLiNER2 runs in PyTorch; measure speed on your hardware with `benchmark_tier2.py`.
-- **SpanMarker dropped.** PERSON kill test inconclusive (GLiNER2 at 0.953 F1, CI touches 0.97 but can't confirm). Dropped for simplicity.
-
 -----
 
 ## License
