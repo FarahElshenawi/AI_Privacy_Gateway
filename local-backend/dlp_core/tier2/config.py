@@ -15,8 +15,10 @@ DEFAULT_LABELS: tuple[str, ...] = (
     "person", "full_name", "first_name", "middle_name", "last_name", "date_of_birth",
     "address", "street_address", "city", "state_or_region", "postal_code", "country",
     "username",
+    "organization",                                    # ← ADD
     "government_id", "national_id_number", "passport_number", "drivers_license_number",
     "sensitive_date",
+    "date",                                             # ← ADD
     "password", "secret",
 )
 
